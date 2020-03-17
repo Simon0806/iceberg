@@ -116,4 +116,7 @@ public class TableProperties {
 
   public static final String SNAPSHOT_ID_INHERITANCE_ENABLED = "compatibility.snapshot-id-inheritance.enabled";
   public static final boolean SNAPSHOT_ID_INHERITANCE_ENABLED_DEFAULT = false;
+
+  public static final String STAGING_TABLE_NAME_TAG = "staging.name.tag";
+  public static final String STAGING_TABLE_NAME_TAG_DEFAULT = "staging";
 }

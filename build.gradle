@@ -285,6 +285,17 @@ project(':iceberg-arrow') {
 project(':iceberg-spark') {
   apply plugin: 'scala'
 
+  sourceSets {
+    main {
+      scala {
+        srcDirs = ['src/main/scala', 'src/main/java']
+      }
+      java {
+        srcDirs = []
+      }
+    }
+  }
+
   dependencies {
     compile project(':iceberg-api')
     compile project(':iceberg-common')
