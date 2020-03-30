@@ -25,7 +25,7 @@ import org.apache.iceberg.spark.SparkFilters
 import org.apache.spark.sql.catalyst.expressions.Expression
 import scala.collection.JavaConverters._
 
-class DelegatableUpdatesSupport(private val table: SparkTable) {
+class DelegatableUpdatesSupport(private val table: SparkIcebergTable) {
 
   def updateTable(assignments: java.util.Map[String, Expression], condition: Expression): Unit = {
     val assign = assignments.asScala.map{case(k, v) => (k, v)}.toSeq

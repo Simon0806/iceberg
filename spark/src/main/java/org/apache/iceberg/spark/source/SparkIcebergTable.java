@@ -19,12 +19,13 @@
 
 package org.apache.iceberg.spark.source;
 
-import com.google.common.collect.Maps;
+import com.google.common.collect.ImmutableMap;
 import java.util.HashMap;
 import java.util.Map;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.spark.IcebergTable;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.catalyst.expressions.Expression;
@@ -32,23 +33,26 @@ import org.apache.spark.sql.functions;
 import org.apache.spark.sql.iceberg.SparkSQLUtil;
 import org.apache.spark.sql.sources.v2.DataSourceOptions;
 
-public class SparkTable extends IcebergSource {
-  private Table icebergTable;
-  private SparkSQLUtil sqlUtil;
-  private JavaSparkContext jsc;
-  private SparkSession spark = SparkSession.active();
-  private boolean isCaseSensitive;
+public class SparkIcebergTable extends IcebergSource implements IcebergTable {
+  private final Table icebergTable;
+  private final SparkSQLUtil sqlUtil;
+  private final JavaSparkContext jsc;
+  private final SparkSession spark;
+  private final boolean isCaseSensitive;
+
   private DelegatableDeletesSupport deletesSupport = null;
   private DelegatableUpdatesSupport updatesSupport = null;
 
-  public SparkTable(String tableName) {
+  public SparkIcebergTable(String tableName) {
+    spark = SparkSession.active();
 
-    Map<String, String> options = Maps.newHashMap();
-    options.put("path", tableName);
+    Map<String, String> options = ImmutableMap.of("path", tableName);
     Configuration conf = new Configuration(spark.sessionState().newHadoopConf());
     icebergTable = findTable(new DataSourceOptions(options), conf);
+
     jsc = new JavaSparkContext(spark.sparkContext());
-    isCaseSensitive = Boolean.parseBoolean(spark.conf().get("spark.sql.caseSensitive"));
+    isCaseSensitive = Boolean.parseBoolean(spark.conf().get("spark.sql.caseSensitive", "false"));
+
     sqlUtil = new SparkSQLUtil(spark.read().format("iceberg").load(normalizedName()).queryExecution().analyzed(),
         spark.sessionState().analyzer().resolver());
   }
@@ -57,11 +61,11 @@ public class SparkTable extends IcebergSource {
     return this.icebergTable.toString();
   }
 
-  public JavaSparkContext jsc() {
+  JavaSparkContext jsc() {
     return jsc;
   }
 
-  public SparkSQLUtil getSqlUtil() {
+  SparkSQLUtil getSqlUtil() {
     return sqlUtil;
   }
 
@@ -108,11 +112,13 @@ public class SparkTable extends IcebergSource {
     return deletesSupport;
   }
 
-  public void deleteWhere(Expression conditionExpr) {
+  @Override
+  public void delete(Expression conditionExpr) {
     getDeletesSupport().deleteWhere(conditionExpr);
   }
 
-  public void deleteWhere(String condition) {
+  @Override
+  public void delete(String condition) {
     Expression conditionExpr;
     if (condition == null || condition.equals("")) {
       conditionExpr = functions.lit(true).expr();
@@ -120,10 +126,11 @@ public class SparkTable extends IcebergSource {
       conditionExpr = functions.expr(condition).expr();
     }
 
-    deleteWhere(conditionExpr);
+    delete(conditionExpr);
   }
 
-  public void update(Map<String, String> assignments, String condition) {
+  @Override
+  public void update(String condition, Map<String, String> assignments) {
     Expression resolvedCondition;
     if (condition == null || condition.equals("")) {
       resolvedCondition = functions.lit(true).expr();
@@ -139,7 +146,8 @@ public class SparkTable extends IcebergSource {
     getUpdateSupport().updateTable(assign, resolvedCondition);
   }
 
-  public void updateExpr(Map<String, Expression> assignments, String condition) {
+  @Override
+  public void updateExpr(String condition, Map<String, Expression> assignments) {
     Expression resolvedCondition;
     if (condition == null || condition.equals("")) {
       resolvedCondition = functions.lit(true).expr();
@@ -148,5 +156,4 @@ public class SparkTable extends IcebergSource {
     }
     getUpdateSupport().updateTable(assignments, resolvedCondition);
   }
-
 }

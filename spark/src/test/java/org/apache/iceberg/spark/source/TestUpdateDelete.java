@@ -36,6 +36,7 @@ import org.apache.iceberg.hadoop.HadoopTables;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.iceberg.hive.HiveClientPool;
 import org.apache.iceberg.hive.TestHiveMetastore;
+import org.apache.iceberg.spark.IcebergTable;
 import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
@@ -150,7 +151,7 @@ public class TestUpdateDelete {
   }
 
   @After
-  public void stopUniTest() {
+  public void stopUnitTest() {
     if (sourceType.equals("hive")) {
       catalog.dropTable(TableIdentifier.of(HIVE_DB, TABLE_NAME));
     }
@@ -179,11 +180,16 @@ public class TestUpdateDelete {
         new SimpleRecord(8, "h")
     );
     Dataset<Row> writeDF = spark.createDataFrame(create, SimpleRecord.class);
-    writeDF.select("id", "data").write().format("iceberg").mode("append").save(dbTable);
+    writeDF
+        .select("id", "data")
+        .write()
+        .format("iceberg")
+        .mode("append")
+        .save(dbTable);
     verify(create);
 
-    SparkTable table = new SparkTable(dbTable);
-    table.deleteWhere("data = 'a'");
+    IcebergTable table = IcebergTable.of(dbTable);
+    table.delete("data = 'a'");
     verify(Lists.newArrayList(
         new SimpleRecord(2, "b"),
         new SimpleRecord(3, "c"),
@@ -194,7 +200,7 @@ public class TestUpdateDelete {
         new SimpleRecord(8, "h"))
     );
 
-    table.deleteWhere("id = 2");
+    table.delete("id = 2");
     verify(Lists.newArrayList(
         new SimpleRecord(3, "c"),
         new SimpleRecord(4, "d"),
@@ -205,7 +211,7 @@ public class TestUpdateDelete {
     );
 
     // delete with IN expression
-    table.deleteWhere("data in ('c')");
+    table.delete("data in ('c')");
     verify(Lists.newArrayList(
         new SimpleRecord(4, "d"),
         new SimpleRecord(5, "e"),
@@ -215,7 +221,7 @@ public class TestUpdateDelete {
     );
 
     // delete with In expression
-    table.deleteWhere("data in ('d')");
+    table.delete("data in ('d')");
     verify(Lists.newArrayList(
         new SimpleRecord(5, "e"),
         new SimpleRecord(6, "f"),
@@ -224,18 +230,18 @@ public class TestUpdateDelete {
     );
 
     // delete with Or expression
-    table.deleteWhere("id = 5 or data = 'f'");
+    table.delete("id = 5 or data = 'f'");
     verify(Lists.newArrayList(
         new SimpleRecord(7, "g"),
         new SimpleRecord(8, "h"))
     );
 
     // delete with GreatThan expression
-    table.deleteWhere("id > 7");
+    table.delete("id > 7");
     verify(Lists.newArrayList(new SimpleRecord(7, "g")));
 
     // delete with empty expression
-    table.deleteWhere("");
+    table.delete("");
     verify(Lists.newArrayList());
   }
 
@@ -259,11 +265,16 @@ public class TestUpdateDelete {
         new SimpleRecord(6, "f2")
     );
     Dataset<Row> writeDF = spark.createDataFrame(create, SimpleRecord.class);
-    writeDF.select("id", "data").write().format("iceberg").mode("append").save(dbTable);
+    writeDF
+        .select("id", "data")
+        .write()
+        .format("iceberg")
+        .mode("append")
+        .save(dbTable);
     verify(create);
 
-    SparkTable table = new SparkTable(dbTable);
-    table.deleteWhere("data = 'a1'");
+    IcebergTable table = IcebergTable.of(dbTable);
+    table.delete("data = 'a1'");
     verify(Lists.newArrayList(
         new SimpleRecord(1, "a2"),
         new SimpleRecord(2, "b1"),
@@ -279,7 +290,7 @@ public class TestUpdateDelete {
     );
 
     // delete one row with partition column
-    table.deleteWhere("id = 1");
+    table.delete("id = 1");
     verify(Lists.newArrayList(
         new SimpleRecord(2, "b1"),
         new SimpleRecord(2, "b2"),
@@ -294,7 +305,7 @@ public class TestUpdateDelete {
     );
 
     // delete multiple rows with partition column
-    table.deleteWhere("id =2");
+    table.delete("id =2");
     verify(Lists.newArrayList(
         new SimpleRecord(3, "c1"),
         new SimpleRecord(3, "c2"),
@@ -307,7 +318,7 @@ public class TestUpdateDelete {
     );
 
     // delete with In expression
-    table.deleteWhere("data in ('c1', 'c2')");
+    table.delete("data in ('c1', 'c2')");
     verify(Lists.newArrayList(
         new SimpleRecord(4, "d1"),
         new SimpleRecord(4, "d2"),
@@ -318,7 +329,7 @@ public class TestUpdateDelete {
     );
 
     // delete with Or expression
-    table.deleteWhere("id = 4 or data = 'e1'");
+    table.delete("id = 4 or data = 'e1'");
     verify(Lists.newArrayList(
         new SimpleRecord(5, "e2"),
         new SimpleRecord(6, "f1"),
@@ -326,11 +337,11 @@ public class TestUpdateDelete {
     );
 
     // delete with GreatThan expression
-    table.deleteWhere("id > 5");
+    table.delete("id > 5");
     verify(Lists.newArrayList(new SimpleRecord(5, "e2")));
 
     // delete with empty expression
-    table.deleteWhere("");
+    table.delete("");
     verify(Lists.newArrayList());
   }
 
@@ -353,12 +364,17 @@ public class TestUpdateDelete {
         new SimpleRecord(4, "d2")
     );
     Dataset<Row> writeDF = spark.createDataFrame(create, SimpleRecord.class);
-    writeDF.select("id", "data").write().format("iceberg").mode("append").save(dbTable);
+    writeDF
+        .select("id", "data")
+        .write()
+        .format("iceberg")
+        .mode("append")
+        .save(dbTable);
     verify(create);
 
-    SparkTable table = new SparkTable(dbTable);
+    IcebergTable table = IcebergTable.of(dbTable);
     assignments2.put("id", "0");
-    table.update(assignments2, "data='a1'");
+    table.update("data='a1'", assignments2);
     verify(Lists.newArrayList(
         new SimpleRecord(0, "a1"),
         new SimpleRecord(1, "a2"),
@@ -372,7 +388,7 @@ public class TestUpdateDelete {
     assignments2.clear();
 
     assignments2.put("id", "id+1");
-    table.update(assignments2, "data = 'a1' or data = 'a2'");
+    table.update("data = 'a1' or data = 'a2'", assignments2);
     verify(Lists.newArrayList(
         new SimpleRecord(1, "a1"),
         new SimpleRecord(2, "a2"),
@@ -386,7 +402,7 @@ public class TestUpdateDelete {
     assignments2.clear();
 
     assignments2.put("data", "concat(data, '_test')");
-    table.update(assignments2, "id in (1, 2)");
+    table.update("id in (1, 2)", assignments2);
     verify(Lists.newArrayList(
         new SimpleRecord(1, "a1_test"),
         new SimpleRecord(2, "a2_test"),
@@ -400,7 +416,7 @@ public class TestUpdateDelete {
     assignments2.clear();
 
     assignments1.put("data", functions.expr("'or_test'").expr());
-    table.updateExpr(assignments1, "id=3 or id=4");
+    table.updateExpr("id=3 or id=4", assignments1);
     verify(Lists.newArrayList(
         new SimpleRecord(1, "a1_test"),
         new SimpleRecord(2, "a2_test"),
@@ -414,7 +430,7 @@ public class TestUpdateDelete {
     assignments1.clear();
 
     assignments1.put("data", functions.expr("'gt3'").expr());
-    table.updateExpr(assignments1, "id>3");
+    table.updateExpr("id>3", assignments1);
     verify(Lists.newArrayList(
         new SimpleRecord(1, "a1_test"),
         new SimpleRecord(2, "a2_test"),
@@ -429,7 +445,7 @@ public class TestUpdateDelete {
 
     // update with empty condition
     assignments2.put("data", "'same'");
-    table.update(assignments2, "");
+    table.update("", assignments2);
     verify(Lists.newArrayList(
         new SimpleRecord(1, "same"),
         new SimpleRecord(2, "same"),
@@ -462,12 +478,17 @@ public class TestUpdateDelete {
         new SimpleRecord(4, "d2")
     );
     Dataset<Row> writeDF = spark.createDataFrame(create, SimpleRecord.class);
-    writeDF.select("id", "data").write().format("iceberg").mode("append").save(dbTable);
+    writeDF
+        .select("id", "data")
+        .write()
+        .format("iceberg")
+        .mode("append")
+        .save(dbTable);
     verify(create);
 
-    SparkTable table = new SparkTable(dbTable);
+    IcebergTable table = IcebergTable.of(dbTable);
     assignments2.put("id", "0");
-    table.update(assignments2, "data='a1'");
+    table.update("data='a1'", assignments2);
     verify(Lists.newArrayList(
         new SimpleRecord(0, "a1"),
         new SimpleRecord(1, "a2"),
@@ -481,7 +502,7 @@ public class TestUpdateDelete {
     assignments2.clear();
 
     assignments2.put("id", "id+1");
-    table.update(assignments2, "data in ('a1', 'a2')");
+    table.update("data in ('a1', 'a2')", assignments2);
     verify(Lists.newArrayList(
         new SimpleRecord(1, "a1"),
         new SimpleRecord(2, "a2"),
@@ -495,7 +516,7 @@ public class TestUpdateDelete {
     assignments2.clear();
 
     assignments1.put("data", functions.expr("concat(data, '_test')").expr());
-    table.updateExpr(assignments1, "id in (1, 2)");
+    table.updateExpr("id in (1, 2)", assignments1);
     verify(Lists.newArrayList(
         new SimpleRecord(1, "a1_test"),
         new SimpleRecord(2, "a2_test"),
@@ -509,7 +530,7 @@ public class TestUpdateDelete {
     assignments1.clear();
 
     assignments2.put("data", "'or_test'");
-    table.update(assignments2, "id=4 or id=3");
+    table.update("id=4 or id=3", assignments2);
     verify(Lists.newArrayList(
         new SimpleRecord(1, "a1_test"),
         new SimpleRecord(2, "a2_test"),
@@ -523,7 +544,7 @@ public class TestUpdateDelete {
     assignments2.clear();
 
     assignments1.put("data", functions.expr("'gt3'").expr());
-    table.updateExpr(assignments1, "id>3");
+    table.updateExpr("id>3", assignments1);
     verify(Lists.newArrayList(
         new SimpleRecord(1, "a1_test"),
         new SimpleRecord(2, "a2_test"),
@@ -538,7 +559,7 @@ public class TestUpdateDelete {
 
     // update with empty condition
     assignments1.put("data", functions.expr("'same'").expr());
-    table.updateExpr(assignments1, "");
+    table.updateExpr("", assignments1);
     verify(Lists.newArrayList(
         new SimpleRecord(1, "same"),
         new SimpleRecord(2, "same"),
@@ -571,12 +592,17 @@ public class TestUpdateDelete {
         new SimpleRecord(4, "d2")
     );
     Dataset<Row> writeDF = spark.createDataFrame(create, SimpleRecord.class);
-    writeDF.select("id", "data").write().format("iceberg").mode("append").save(dbTable);
+    writeDF
+        .select("id", "data")
+        .write()
+        .format("iceberg")
+        .mode("append")
+        .save(dbTable);
     verify(create);
 
-    SparkTable table = new SparkTable(dbTable);
+    IcebergTable table = IcebergTable.of(dbTable);
     assignments2.put("id", "0");
-    table.update(assignments2, "data='a1'");
+    table.update("data='a1'", assignments2);
     verify(Lists.newArrayList(
         new SimpleRecord(0, "a1"),
         new SimpleRecord(1, "a2"),
@@ -590,7 +616,7 @@ public class TestUpdateDelete {
     assignments2.clear();
 
     assignments2.put("id", "id+1");
-    table.update(assignments2, "data in ('a1', 'a2')");
+    table.update("data in ('a1', 'a2')", assignments2);
     verify(Lists.newArrayList(
         new SimpleRecord(1, "a1"),
         new SimpleRecord(2, "a2"),
@@ -604,7 +630,7 @@ public class TestUpdateDelete {
     assignments2.clear();
 
     assignments1.put("data", functions.expr("concat(data, '_test')").expr());
-    table.updateExpr(assignments1, "id in (1, 2)");
+    table.updateExpr("id in (1, 2)", assignments1);
     verify(Lists.newArrayList(
         new SimpleRecord(1, "a1_test"),
         new SimpleRecord(2, "a2_test"),
@@ -618,7 +644,7 @@ public class TestUpdateDelete {
     assignments2.clear();
 
     assignments2.put("data", "'or_test'");
-    table.update(assignments2, "id=4 or id=3");
+    table.update("id=4 or id=3", assignments2);
     verify(Lists.newArrayList(
         new SimpleRecord(1, "a1_test"),
         new SimpleRecord(2, "a2_test"),
@@ -632,7 +658,7 @@ public class TestUpdateDelete {
     assignments2.clear();
 
     assignments1.put("data", functions.expr("'gt3'").expr());
-    table.updateExpr(assignments1, "id>3");
+    table.updateExpr("id>3", assignments1);
     verify(Lists.newArrayList(
         new SimpleRecord(1, "a1_test"),
         new SimpleRecord(2, "a2_test"),
@@ -647,7 +673,7 @@ public class TestUpdateDelete {
 
     assignments2.put("data", "'same'");
     // update with empty condition
-    table.update(assignments2, "");
+    table.update("", assignments2);
     verify(Lists.newArrayList(
         new SimpleRecord(1, "same"),
         new SimpleRecord(2, "same"),

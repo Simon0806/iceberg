@@ -20,7 +20,7 @@
 package org.apache.spark.sql.iceberg
 
 import org.apache.iceberg.spark.SparkSchemaUtil
-import org.apache.iceberg.spark.source.SparkTable
+import org.apache.iceberg.spark.source.SparkIcebergTable
 import org.apache.spark.sql.{Column, DataFrame, Dataset, Row, SparkSession}
 import org.apache.spark.sql.catalyst.analysis.{CastSupport, Resolver, UnresolvedAttribute}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, CreateNamedStruct, Expression,
@@ -64,7 +64,7 @@ class SparkSQLUtil(plan: LogicalPlan, resolver: Resolver) extends PredicateHelpe
     }
   }
 
-  def resolveAndBind(table: SparkTable, expr: Expression): Expression = {
+  def resolveAndBind(table: SparkIcebergTable, expr: Expression): Expression = {
     val structType = SparkSchemaUtil.convert(table.schema())
     BindReferences.bindReference(resolve(table.sparkSession, expr), plan.resolve(structType, resolver))
   }

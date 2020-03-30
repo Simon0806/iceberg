@@ -26,7 +26,7 @@ import org.apache.iceberg.spark.SparkFilters
 import org.apache.spark.sql.catalyst.expressions.Expression
 import scala.collection.JavaConverters._
 
-class DelegatableDeletesSupport(table: SparkTable) {
+class DelegatableDeletesSupport(table: SparkIcebergTable) {
 
   def deleteWhere(condition: Expression): Unit = {
     val resolveCondition = table.getSqlUtil.resolve(table.sparkSession(), condition)
