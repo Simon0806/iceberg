@@ -27,6 +27,7 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import org.apache.iceberg.exceptions.RuntimeIOException;
@@ -106,6 +107,38 @@ public interface CloseableIterable<T> extends Iterable<T>, Closeable {
     } else {
       return new ConcatCloseableIterable<>(iterable);
     }
+  }
+
+  static <I, O> CloseableIterable<O> transformWithIndex(CloseableIterable<I> iterable,
+                                                        BiFunction<Long, I, O> transform) {
+    Preconditions.checkNotNull(transform, "Cannot apply a null transform");
+
+    return new CloseableIterable<O>() {
+      @Override
+      public void close() throws IOException {
+        iterable.close();
+      }
+
+      @Override
+      public Iterator<O> iterator() {
+        return new Iterator<O>() {
+          private final Iterator<I> inner = iterable.iterator();
+          private long index = 0;
+
+          @Override
+          public boolean hasNext() {
+            return inner.hasNext();
+          }
+
+          @Override
+          public O next() {
+            O result = transform.apply(index, inner.next());
+            index += 1;
+            return result;
+          }
+        };
+      }
+    };
   }
 
   class ConcatCloseableIterable<E> extends CloseableGroup implements CloseableIterable<E> {

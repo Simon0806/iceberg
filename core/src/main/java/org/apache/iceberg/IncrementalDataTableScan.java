@@ -99,7 +99,7 @@ class IncrementalDataTableScan extends DataTableScan {
         .specsById(tableOps().current().specsById())
         .ignoreDeleted();
 
-    if (PLAN_SCANS_WITH_WORKER_POOL && manifests.size() > 1) {
+    if (useWorkerPool() && manifests.size() > 1) {
       manifestGroup = manifestGroup.planWith(ThreadPools.getWorkerPool());
     }
 

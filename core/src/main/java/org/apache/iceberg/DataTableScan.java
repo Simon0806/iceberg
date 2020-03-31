@@ -25,6 +25,7 @@ import com.google.common.collect.ImmutableMap;
 import java.util.Collection;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.util.PropertyUtil;
 import org.apache.iceberg.util.ThreadPools;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,14 +44,22 @@ public class DataTableScan extends BaseTableScan {
   static final boolean PLAN_SCANS_WITH_WORKER_POOL =
       SystemProperties.getBoolean(SystemProperties.SCAN_THREAD_POOL_ENABLED, true);
 
+  private final boolean useWorkerPool;
+
   public DataTableScan(TableOperations ops, Table table) {
     super(ops, table, table.schema());
+    this.useWorkerPool = PropertyUtil.propertyAsBoolean(options(), "use-worker-pool", PLAN_SCANS_WITH_WORKER_POOL);
   }
 
   protected DataTableScan(TableOperations ops, Table table, Long snapshotId, Schema schema,
                           Expression rowFilter, boolean caseSensitive, boolean colStats,
                           Collection<String> selectedColumns, ImmutableMap<String, String> options) {
     super(ops, table, snapshotId, schema, rowFilter, caseSensitive, colStats, selectedColumns, options);
+    this.useWorkerPool = PropertyUtil.propertyAsBoolean(options(), "use-worker-pool", PLAN_SCANS_WITH_WORKER_POOL);
+  }
+
+  protected boolean useWorkerPool() {
+    return useWorkerPool;
   }
 
   @Override
@@ -90,7 +99,7 @@ public class DataTableScan extends BaseTableScan {
         .specsById(ops.current().specsById())
         .ignoreDeleted();
 
-    if (PLAN_SCANS_WITH_WORKER_POOL && snapshot.manifests().size() > 1) {
+    if (useWorkerPool && snapshot.manifests().size() > 1) {
       manifestGroup = manifestGroup.planWith(ThreadPools.getWorkerPool());
     }
 

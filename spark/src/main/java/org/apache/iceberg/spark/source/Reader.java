@@ -27,6 +27,7 @@ import java.io.Serializable;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.BlockLocation;
@@ -78,9 +79,9 @@ class Reader implements DataSourceReader, SupportsPushDownFilters, SupportsPushD
   private final Long startSnapshotId;
   private final Long endSnapshotId;
   private final Long asOfTimestamp;
-  private final Long splitSize;
-  private final Integer splitLookback;
-  private final Long splitOpenFileCost;
+  private final long splitSize;
+  private final int splitLookback;
+  private final long splitOpenFileCost;
   private final Broadcast<FileIO> io;
   private final Broadcast<EncryptionManager> encryptionManager;
   private final boolean caseSensitive;
@@ -119,9 +120,18 @@ class Reader implements DataSourceReader, SupportsPushDownFilters, SupportsPushD
     }
 
     // look for split behavior overrides in options
-    this.splitSize = options.get("split-size").map(Long::parseLong).orElse(null);
-    this.splitLookback = options.get("lookback").map(Integer::parseInt).orElse(null);
-    this.splitOpenFileCost = options.get("file-open-cost").map(Long::parseLong).orElse(null);
+    this.splitSize = options.get("split-size").map(Long::parseLong).orElse(
+        Optional.ofNullable(table.properties().get(TableProperties.SPLIT_SIZE))
+            .map(Long::parseLong)
+            .orElse(TableProperties.SPLIT_SIZE_DEFAULT));
+    this.splitLookback = options.get("lookback").map(Integer::parseInt).orElse(
+        Optional.ofNullable(table.properties().get(TableProperties.SPLIT_LOOKBACK))
+            .map(Integer::parseInt)
+            .orElse(TableProperties.SPLIT_LOOKBACK_DEFAULT));
+    this.splitOpenFileCost = options.get("file-open-cost").map(Long::parseLong).orElse(
+        Optional.ofNullable(table.properties().get(TableProperties.SPLIT_OPEN_FILE_COST))
+            .map(Long::parseLong)
+            .orElse(TableProperties.SPLIT_OPEN_FILE_COST_DEFAULT));
 
     if (io.getValue() instanceof HadoopFileIO) {
       String scheme = "no_exist";
@@ -160,6 +170,36 @@ class Reader implements DataSourceReader, SupportsPushDownFilters, SupportsPushD
       this.type = SparkSchemaUtil.convert(lazySchema());
     }
     return type;
+  }
+
+  protected long splitSize() {
+    return splitSize;
+  }
+
+  protected int splitLookback() {
+    return splitLookback;
+  }
+
+  protected long splitOpenFileCost() {
+    return splitOpenFileCost;
+  }
+
+  protected TableScan buildTableScan() {
+    TableScan scan = table
+        .newScan()
+        .caseSensitive(caseSensitive)
+        .project(lazySchema())
+        .option(TableProperties.SPLIT_SIZE, Long.toString(splitSize))
+        .option(TableProperties.SPLIT_LOOKBACK, Integer.toString(splitLookback))
+        .option(TableProperties.SPLIT_OPEN_FILE_COST, Long.toString(splitOpenFileCost));
+
+    if (filterExpressions != null) {
+      for (Expression filter : filterExpressions) {
+        scan = scan.filter(filter);
+      }
+    }
+
+    return scan;
   }
 
   @Override
@@ -238,12 +278,9 @@ class Reader implements DataSourceReader, SupportsPushDownFilters, SupportsPushD
     return new Stats(sizeInBytes, numRows);
   }
 
-  private List<CombinedScanTask> tasks() {
+  protected List<CombinedScanTask> tasks() {
     if (tasks == null) {
-      TableScan scan = table
-          .newScan()
-          .caseSensitive(caseSensitive)
-          .project(lazySchema());
+      TableScan scan = buildTableScan();
 
       if (snapshotId != null) {
         scan = scan.useSnapshot(snapshotId);
@@ -258,24 +295,6 @@ class Reader implements DataSourceReader, SupportsPushDownFilters, SupportsPushD
           scan = scan.appendsBetween(startSnapshotId, endSnapshotId);
         } else {
           scan = scan.appendsAfter(startSnapshotId);
-        }
-      }
-
-      if (splitSize != null) {
-        scan = scan.option(TableProperties.SPLIT_SIZE, splitSize.toString());
-      }
-
-      if (splitLookback != null) {
-        scan = scan.option(TableProperties.SPLIT_LOOKBACK, splitLookback.toString());
-      }
-
-      if (splitOpenFileCost != null) {
-        scan = scan.option(TableProperties.SPLIT_OPEN_FILE_COST, splitOpenFileCost.toString());
-      }
-
-      if (filterExpressions != null) {
-        for (Expression filter : filterExpressions) {
-          scan = scan.filter(filter);
         }
       }
 
