@@ -48,6 +48,8 @@ allprojects {
   group = "org.apache.iceberg"
   version = getProjectVersion()
   repositories {
+    maven { url  "http://mirrors.tencent.com/repository/maven/tencent_spark_release" }
+    maven { url  "http://maven.oa.com/nexus/content/groups/public" }
     maven { url  "http://palantir.bintray.com/releases" }
     mavenCentral()
     mavenLocal()
@@ -306,8 +308,9 @@ project(':iceberg-spark') {
     compile project(':iceberg-hive')
 
     compileOnly "org.apache.avro:avro"
-    compileOnly("org.apache.spark:spark-hive_2.11") {
+    compileOnly("com.tencent.spark:spark-hive_2.11") {
       exclude group: 'org.apache.avro', module: 'avro'
+      exclude group: 'mysql'
     }
 
     testCompile "org.apache.hadoop:hadoop-hdfs::tests"
@@ -333,7 +336,7 @@ project(':iceberg-spark') {
     // dependency only to the jmh configuration, however gradle-consistent-versions
     // plugin does not respect this configuration and does not seem to have a way
     // to add custom configurations in its lockable configuration detection
-    compileOnly("org.apache.spark:spark-avro_2.11") {
+    compileOnly("com.tencent.spark:spark-avro_2.11") {
       exclude group: 'org.apache.avro', module: 'avro'
     }
   }
