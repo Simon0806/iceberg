@@ -258,7 +258,7 @@ public class IcebergSource implements DataSourceV2, ReadSupport, WriteSupport, D
     return sparkCheckOrdering && dataFrameCheckOrdering;
   }
 
-  private FileIO fileIO(Table table) {
+  static FileIO fileIO(Table table) {
     if (table.io() instanceof HadoopFileIO) {
       // we need to use Spark's SerializableConfiguration to avoid issues with Kryo serialization
       SerializableConfiguration conf = new SerializableConfiguration(((HadoopFileIO) table.io()).conf());

@@ -46,8 +46,9 @@ object StagingTableHelper {
     val residual = ResidualEvaluator.of(spec, Expressions.alwaysTrue(), table.caseSensitive)
     val readTasks = files.map(new BaseFileScanTask(_, tableSchemaString, PartitionSpecParser.toJson(spec), residual))
       .map { scan =>
+        val io = IcebergSource.fileIO(table.getIcebergTable)
         new ReadTask(new BaseCombinedScanTask(scan), tableSchemaString, expectedSchemaString,
-          table.jsc.broadcast(table.getIcebergTable.io()), table.jsc.broadcast(table.getIcebergTable.encryption()),
+          table.jsc.broadcast(io), table.jsc.broadcast(table.getIcebergTable.encryption()),
           table.caseSensitive, true)
       }
 
