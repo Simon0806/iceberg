@@ -64,6 +64,10 @@ import org.apache.spark.sql.types.StructType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.apache.iceberg.TableProperties.SPLIT_LOOKBACK_DEFAULT;
+import static org.apache.iceberg.TableProperties.SPLIT_OPEN_FILE_COST_DEFAULT;
+import static org.apache.iceberg.TableProperties.SPLIT_SIZE_DEFAULT;
+
 class Reader implements DataSourceReader, SupportsPushDownFilters, SupportsPushDownRequiredColumns,
     SupportsReportStatistics {
   private static final Logger LOG = LoggerFactory.getLogger(Reader.class);
@@ -76,9 +80,9 @@ class Reader implements DataSourceReader, SupportsPushDownFilters, SupportsPushD
   private final Long startSnapshotId;
   private final Long endSnapshotId;
   private final Long asOfTimestamp;
-  private final long splitSize;
-  private final int splitLookback;
-  private final long splitOpenFileCost;
+  private final Long splitSize;
+  private final Integer splitLookback;
+  private final Long splitOpenFileCost;
   private final Broadcast<FileIO> io;
   private final Broadcast<EncryptionManager> encryptionManager;
   private final boolean caseSensitive;
@@ -117,18 +121,9 @@ class Reader implements DataSourceReader, SupportsPushDownFilters, SupportsPushD
     }
 
     // look for split behavior overrides in options
-    this.splitSize = options.get("split-size").map(Long::parseLong).orElse(
-        Optional.ofNullable(table.properties().get(TableProperties.SPLIT_SIZE))
-            .map(Long::parseLong)
-            .orElse(TableProperties.SPLIT_SIZE_DEFAULT));
-    this.splitLookback = options.get("lookback").map(Integer::parseInt).orElse(
-        Optional.ofNullable(table.properties().get(TableProperties.SPLIT_LOOKBACK))
-            .map(Integer::parseInt)
-            .orElse(TableProperties.SPLIT_LOOKBACK_DEFAULT));
-    this.splitOpenFileCost = options.get("file-open-cost").map(Long::parseLong).orElse(
-        Optional.ofNullable(table.properties().get(TableProperties.SPLIT_OPEN_FILE_COST))
-            .map(Long::parseLong)
-            .orElse(TableProperties.SPLIT_OPEN_FILE_COST_DEFAULT));
+    this.splitSize = options.get("split-size").map(Long::parseLong).orElse(null);
+    this.splitLookback = options.get("lookback").map(Integer::parseInt).orElse(null);
+    this.splitOpenFileCost = options.get("file-open-cost").map(Long::parseLong).orElse(null);
 
     if (io.getValue() instanceof HadoopFileIO) {
       String scheme = "no_exist";
@@ -170,25 +165,34 @@ class Reader implements DataSourceReader, SupportsPushDownFilters, SupportsPushD
   }
 
   protected long splitSize() {
-    return splitSize;
+    return Optional.ofNullable(splitSize).orElse(SPLIT_SIZE_DEFAULT);
   }
 
   protected int splitLookback() {
-    return splitLookback;
+    return Optional.ofNullable(splitLookback).orElse(SPLIT_LOOKBACK_DEFAULT);
   }
 
   protected long splitOpenFileCost() {
-    return splitOpenFileCost;
+    return Optional.ofNullable(splitOpenFileCost).orElse(SPLIT_OPEN_FILE_COST_DEFAULT);
   }
 
   protected TableScan buildTableScan() {
     TableScan scan = table
         .newScan()
         .caseSensitive(caseSensitive)
-        .project(lazySchema())
-        .option(TableProperties.SPLIT_SIZE, Long.toString(splitSize))
-        .option(TableProperties.SPLIT_LOOKBACK, Integer.toString(splitLookback))
-        .option(TableProperties.SPLIT_OPEN_FILE_COST, Long.toString(splitOpenFileCost));
+        .project(lazySchema());
+
+    if (splitSize != null) {
+      scan = scan.option(TableProperties.SPLIT_SIZE, splitSize.toString());
+    }
+
+    if (splitLookback != null) {
+      scan = scan.option(TableProperties.SPLIT_LOOKBACK, splitLookback.toString());
+    }
+
+    if (splitOpenFileCost != null) {
+      scan = scan.option(TableProperties.SPLIT_OPEN_FILE_COST, splitOpenFileCost.toString());
+    }
 
     if (filterExpressions != null) {
       for (Expression filter : filterExpressions) {
