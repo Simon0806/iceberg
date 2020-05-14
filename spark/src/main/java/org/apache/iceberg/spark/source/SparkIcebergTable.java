@@ -27,18 +27,21 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.spark.IcebergTable;
 import org.apache.spark.api.java.JavaSparkContext;
+import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.catalyst.expressions.Expression;
+import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan;
 import org.apache.spark.sql.functions;
-import org.apache.spark.sql.iceberg.SparkSQLUtil;
 import org.apache.spark.sql.sources.v2.DataSourceOptions;
 
 public class SparkIcebergTable extends IcebergSource implements IcebergTable {
   private final Table icebergTable;
-  private final SparkSQLUtil sqlUtil;
   private final JavaSparkContext jsc;
   private final SparkSession spark;
   private final boolean isCaseSensitive;
+  private String alias;
+  private final LogicalPlan logicalPlan;
 
   private DelegatableDeletesSupport deletesSupport = null;
   private DelegatableUpdatesSupport updatesSupport = null;
@@ -53,8 +56,7 @@ public class SparkIcebergTable extends IcebergSource implements IcebergTable {
     jsc = new JavaSparkContext(spark.sparkContext());
     isCaseSensitive = Boolean.parseBoolean(spark.conf().get("spark.sql.caseSensitive", "false"));
 
-    sqlUtil = new SparkSQLUtil(spark.read().format("iceberg").load(normalizedName()).queryExecution().analyzed(),
-        spark.sessionState().analyzer().resolver());
+    logicalPlan = spark.read().format("iceberg").load(normalizedName()).queryExecution().analyzed();
   }
 
   public String name() {
@@ -65,12 +67,17 @@ public class SparkIcebergTable extends IcebergSource implements IcebergTable {
     return jsc;
   }
 
-  SparkSQLUtil getSqlUtil() {
-    return sqlUtil;
-  }
-
   public SparkSession sparkSession() {
     return spark;
+  }
+
+  public LogicalPlan plan() {
+    return logicalPlan;
+  }
+
+  public Dataset<Row> toDF() {
+    Dataset<Row> df = Dataset.ofRows(spark, logicalPlan);
+    return alias != null ? df.as(alias) : df;
   }
 
   public boolean caseSensitive() {
@@ -96,6 +103,12 @@ public class SparkIcebergTable extends IcebergSource implements IcebergTable {
 
   public Table getIcebergTable() {
     return this.icebergTable;
+  }
+
+  @Override
+  public SparkIcebergTable as(String newAlias) {
+    this.alias = newAlias;
+    return this;
   }
 
   private DelegatableUpdatesSupport getUpdateSupport() {
@@ -155,5 +168,10 @@ public class SparkIcebergTable extends IcebergSource implements IcebergTable {
       resolvedCondition = functions.expr(condition).expr();
     }
     getUpdateSupport().updateTable(assignments, resolvedCondition);
+  }
+
+  @Override
+  public IcebergMergeBuilder merge(Dataset<Row> source) {
+    return IcebergMergeBuilder.apply(this, source);
   }
 }

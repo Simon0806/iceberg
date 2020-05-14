@@ -24,30 +24,32 @@ import org.apache.iceberg.exceptions.ValidationException
 import org.apache.iceberg.expressions.Expressions
 import org.apache.iceberg.spark.SparkFilters
 import org.apache.spark.sql.catalyst.expressions.Expression
+import org.apache.spark.sql.iceberg.AnalysisHelper
+import org.apache.spark.sql.internal.SQLConf
 import scala.collection.JavaConverters._
 
-class DelegatableDeletesSupport(table: SparkIcebergTable) {
+class DelegatableDeletesSupport(table: SparkIcebergTable) extends AnalysisHelper {
 
   def deleteWhere(condition: Expression): Unit = {
-    val resolveCondition = table.getSqlUtil.resolve(table.sparkSession(), condition)
+    val resolveCondition = resolve(table.sparkSession(), table.plan(),  condition)
     val expression = if (condition.toString() == "true") {
       Expressions.alwaysTrue()
     } else {
-      table.getSqlUtil.toFilter(resolveCondition).map(SparkFilters.convert).reduceLeft(Expressions.and)
+      toFilter(resolveCondition).map(SparkFilters.convert).reduceLeft(Expressions.and)
     }
 
     try {
       // try to delete file at first
       table.getIcebergTable.newDelete().deleteFromRowFilter(expression).commit()
     } catch {
-      case _: ValidationException => {
+      case _: ValidationException =>
         val txn = table.getIcebergTable.newTransaction()
         //Step 1: delete files that match filters
         val filesToDelete = FindFiles.in(table.getIcebergTable).withRecordsMatching(expression)
           .collect().asScala.toList
 
         //Step 2: generate updated files
-        val updatedFiles = StagingTableHelper.generateUpdatedFiles(table, filesToDelete, resolveCondition)
+        val updatedFiles = StagingTableHelper(table).generateUpdatedFiles(filesToDelete, resolveCondition)
 
         // Step 3: overwrite
         if (updatedFiles.nonEmpty) {
@@ -63,7 +65,8 @@ class DelegatableDeletesSupport(table: SparkIcebergTable) {
           deleting.commit()
         }
         txn.commitTransaction()
-      }
     }
   }
+
+  override def conf: SQLConf = table.sparkSession().sessionState.conf
 }

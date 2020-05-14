@@ -35,11 +35,13 @@ import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
 import org.apache.spark.sql.catalyst.expressions.{Expression, Not}
 import org.apache.spark.sql.execution.LogicalRDD
 import org.apache.spark.sql.execution.datasources.v2.DataSourceRDD
+import org.apache.spark.sql.iceberg.AnalysisHelper
+import org.apache.spark.sql.internal.SQLConf
 import scala.collection.JavaConverters._
 
-object StagingTableHelper {
+case class StagingTableHelper(table: SparkIcebergTable) extends AnalysisHelper {
 
-  protected def buildDataFrame(table: SparkIcebergTable, files: Seq[DataFile]): DataFrame = {
+  def buildDataFrame(files: Seq[DataFile]): DataFrame = {
     val tableSchemaString = SchemaParser.toJson(table.schema)
     val expectedSchemaString = SchemaParser.toJson(table.schema)
     val spec = table.getIcebergTable.spec()
@@ -53,33 +55,37 @@ object StagingTableHelper {
       }
 
     val rdd = new DataSourceRDD(table.sparkSession.sparkContext, readTasks)
-    val logicalPlan = LogicalRDD(table.getSqlUtil.getPlan.output, rdd, isStreaming = false)(table.sparkSession)
-    table.getSqlUtil.buildDataFrame(table.sparkSession, logicalPlan)
+    val logicalPlan = LogicalRDD(table.plan().output, rdd, isStreaming = false)(table.sparkSession)
+    buildDataFrame(table.sparkSession, logicalPlan)
   }
 
-  private def buildUpdatedDataFrame(table: SparkIcebergTable, targetColumnNames: Seq[String],
-                                    updateExprs: Seq[Expression], condition: Expression,
+  private def buildUpdatedDataFrame(targetColumnNames: Seq[String],
+                                    updateExprs: Seq[Expression],
+                                    condition: Expression,
                                     files: Seq[DataFile]): Dataset[Row] = {
-    val namedExpressions = table.getSqlUtil.getPlan.output
+    val namedExpressions = table.plan().output
     val targetColumnNameParts = targetColumnNames.map(UnresolvedAttribute.quotedString)
       .map{ col => UnresolvedAttribute(col.name).nameParts }
-    val updatedExpressions = table.getSqlUtil.generateUpdateExpressions(namedExpressions,
-      targetColumnNameParts, updateExprs, table.getSqlUtil.getResolver)
-    val updatedColumns = table.getSqlUtil.buildUpdatedColumns(updatedExpressions, condition)
+    val updatedExpressions = generateUpdateExpressions(namedExpressions,
+      targetColumnNameParts, updateExprs, table.sparkSession().sessionState.analyzer.resolver)
+    val updatedColumns = buildUpdatedColumns(table.plan(), updatedExpressions, condition)
 
-    buildDataFrame(table, files).select(updatedColumns:_*)
+    buildDataFrame(files).select(updatedColumns:_*)
   }
 
-  def generateUpdatedFiles(table: SparkIcebergTable, oldFiles: Seq[DataFile],
+
+  def generateUpdatedFiles(oldFiles: Seq[DataFile],
                            condition: Expression): Iterable[DataFile] = {
-    val dataFrame = buildDataFrame(table, oldFiles).filter(new Column(Not(condition)))
-    writeTableAndGetFiles(table, dataFrame)
+    val dataFrame = buildDataFrame(oldFiles).filter(new Column(Not(condition)))
+    writeTableAndGetFiles(dataFrame)
   }
 
-  def generateUpdatedFiles(table: SparkIcebergTable, targetColumnNames: Seq[String], updateExprs: Seq[Expression],
-                           condition: Expression, oldFiles: Seq[DataFile]): Iterable[DataFile] = {
-    val dataFrame = buildUpdatedDataFrame(table, targetColumnNames, updateExprs, condition, oldFiles)
-    writeTableAndGetFiles(table, dataFrame)
+  def generateUpdatedFiles(targetColumnNames: Seq[String],
+                           updateExprs: Seq[Expression],
+                           condition: Expression,
+                           oldFiles: Seq[DataFile]): Iterable[DataFile] = {
+    val dataFrame = buildUpdatedDataFrame(targetColumnNames, updateExprs, condition, oldFiles)
+    writeTableAndGetFiles(dataFrame)
   }
 
   def buildCatalog(table: SparkIcebergTable): Catalog = {
@@ -106,7 +112,7 @@ object StagingTableHelper {
     }
   }
 
-  def writeTableAndGetFiles(table: SparkIcebergTable, dataFrame: DataFrame): Iterable[DataFile] = {
+  def writeTableAndGetFiles(dataFrame: DataFrame): Iterable[DataFile] = {
     // we need to use catalog service to delete metadata
     val icebergCatalog = buildCatalog(table)
 
@@ -119,7 +125,7 @@ object StagingTableHelper {
       UUID.randomUUID().toString.replaceAll("-", "_"))
 
     // Create staging table
-    val (stagingTable, stagingTableIdentifier, tablePath) = createStagingTable(icebergCatalog, table,
+    val (stagingTable, stagingTableIdentifier, tablePath) = createStagingTable(icebergCatalog,
       baseTableIdentifier, stagingTag, stagingUniquer)
 
     dataFrame.write.format("iceberg").mode("append").save(tablePath)
@@ -135,8 +141,10 @@ object StagingTableHelper {
     files
   }
 
-  private def createStagingTable(catalog: Catalog, table: SparkIcebergTable, baseTableIdentifier: TableIdentifier,
-                                 stagingTag: String, stagingTableUniquer: String): (Table, TableIdentifier, String) = {
+  private def createStagingTable(catalog: Catalog,
+                                 baseTableIdentifier: TableIdentifier,
+                                 stagingTag: String,
+                                 stagingTableUniquer: String): (Table, TableIdentifier, String) = {
     val conf = table.sparkSession().sessionState.newHadoopConf()
     val tableProperties = table.getIcebergTable.properties()
     tableProperties.keySet().asScala
@@ -166,4 +174,8 @@ object StagingTableHelper {
       (stagingTable, stagingTableIdentifier, tablePath)
     }
   }
+
+  override def conf: SQLConf = table.sparkSession().sessionState.conf
+
 }
+

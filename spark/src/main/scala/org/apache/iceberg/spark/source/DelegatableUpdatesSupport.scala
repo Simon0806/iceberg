@@ -21,24 +21,27 @@ package org.apache.iceberg.spark.source
 
 import org.apache.iceberg.FindFiles
 import org.apache.iceberg.expressions.Expressions
-import org.apache.iceberg.spark.SparkFilters
+import org.apache.iceberg.spark.{SparkFilters, SparkSchemaUtil}
 import org.apache.spark.sql.catalyst.expressions.Expression
+import org.apache.spark.sql.iceberg.AnalysisHelper
+import org.apache.spark.sql.internal.SQLConf
 import scala.collection.JavaConverters._
 
-class DelegatableUpdatesSupport(private val table: SparkIcebergTable) {
+class DelegatableUpdatesSupport(private val table: SparkIcebergTable) extends AnalysisHelper{
 
   def updateTable(assignments: java.util.Map[String, Expression], condition: Expression): Unit = {
     val assign = assignments.asScala.map{case(k, v) => (k, v)}.toSeq
     val columnNames = assign.map(_._1).toArray
     val values = assign.map(_._2).toArray
 
-    val resolveValues = values.map(table.getSqlUtil.resolveAndBind(table, _))
-    val resolveCondition = table.getSqlUtil.resolve(table.sparkSession(), condition)
+    val resolvedValues = values.map(resolveAndBind(table.sparkSession(),
+      SparkSchemaUtil.convert(table.schema()), table.plan(), _))
+    val resolvedCondition = resolve(table.sparkSession(), table.plan(), condition)
 
     val expression = if (condition.toString() == "true") {
       Expressions.alwaysTrue()
     } else {
-      table.getSqlUtil.toFilter(resolveCondition).map(SparkFilters.convert).reduceLeft(Expressions.and)
+      toFilter(resolvedCondition).map(SparkFilters.convert).reduceLeft(Expressions.and)
     }
 
     val txn = table.getIcebergTable.newTransaction()
@@ -47,7 +50,7 @@ class DelegatableUpdatesSupport(private val table: SparkIcebergTable) {
     val oldFiles = FindFiles.in(table.getIcebergTable).withRecordsMatching(expression).collect().asScala.toList
 
     //Step 2: generate updated files
-    val newFiles = StagingTableHelper.generateUpdatedFiles(table, columnNames, resolveValues, resolveCondition,
+    val newFiles = StagingTableHelper(table).generateUpdatedFiles(columnNames, resolvedValues, resolvedCondition,
       oldFiles)
 
     //Step 3: overwrite
@@ -61,4 +64,6 @@ class DelegatableUpdatesSupport(private val table: SparkIcebergTable) {
 
     txn.commitTransaction()
   }
+
+  override def conf: SQLConf = table.sparkSession().sessionState.conf
 }

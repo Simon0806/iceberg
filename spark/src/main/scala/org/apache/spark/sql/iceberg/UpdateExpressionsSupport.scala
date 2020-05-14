@@ -19,72 +19,19 @@
 
 package org.apache.spark.sql.iceberg
 
-import org.apache.iceberg.spark.SparkSchemaUtil
-import org.apache.iceberg.spark.source.SparkIcebergTable
-import org.apache.spark.sql.{Column, DataFrame, Dataset, Row, SparkSession}
-import org.apache.spark.sql.catalyst.analysis.{CastSupport, Resolver, UnresolvedAttribute}
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, BindReferences, CreateNamedStruct, Expression,
-  GetStructField, If, Literal, NamedExpression, PredicateHelper, SubqueryExpression}
-import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
-import org.apache.spark.sql.execution.datasources.DataSourceStrategy
-import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.sources.Filter
+import org.apache.spark.sql.catalyst.analysis.{CastSupport, Resolver}
+import org.apache.spark.sql.catalyst.expressions.{Alias, CreateNamedStruct, Expression, GetStructField, Literal,
+  NamedExpression}
 import org.apache.spark.sql.types.{DataType, NullType, StructType}
 
-class SparkSQLUtil(plan: LogicalPlan, resolver: Resolver) extends PredicateHelper with CastSupport {
+trait UpdateExpressionsSupport extends CastSupport{
 
-  def getPlan: LogicalPlan = plan
+  case class UpdateOperation(targetColNameParts: Seq[String], updateExpr: Expression)
 
-  def getResolver: Resolver = resolver
-
-  def getDataFrame: Dataset[Row] = Dataset.ofRows(SparkSession.active, plan)
-
-  def resolve(sparkSession: SparkSession, expr: Expression): Expression = {
-    if (expr.resolved) {
-      expr
-    } else {
-      // resolve children first because it cannot resolve functions at once
-      val partialResolvedAttr = expr.transform {
-        case attr: UnresolvedAttribute =>
-          plan.resolve(attr.nameParts, resolver) match {
-            case Some(resolvedAttr) => resolvedAttr
-            case None => throw new IllegalArgumentException(s"Could not resolve $attr using columns: ${plan.output}")
-          }
-      }
-
-      val newPlan = FakeLogicalPlan(partialResolvedAttr, plan.children)
-      val fullResolvedAttr = sparkSession.sessionState.analyzer.execute(newPlan) match {
-        case FakeLogicalPlan(fullResolvedAttr, _) =>
-          fullResolvedAttr
-        case _ =>
-          throw new IllegalArgumentException(s"Could not resolve $partialResolvedAttr using columns: ${plan.output}")
-      }
-
-      fullResolvedAttr
-    }
-  }
-
-  def resolveAndBind(table: SparkIcebergTable, expr: Expression): Expression = {
-    val structType = SparkSchemaUtil.convert(table.schema())
-    BindReferences.bindReference(resolve(table.sparkSession, expr), plan.resolve(structType, resolver))
-  }
-
-  def toFilter(expr : Expression) : Array[Filter] = {
-    if (SubqueryExpression.hasSubquery(expr)) {
-      throw new Exception(s"condition with subquery is not supported: $expr")
-    }
-
-    splitConjunctivePredicates(expr).map{ expr =>
-      val filter = DataSourceStrategy.translateFilter(expr)
-      if (filter.isEmpty) {
-        throw new Exception(s"Exec update failed: cannot translate expression to source filter: $expr")
-      }
-      filter.get
-    }.toArray
-  }
-
-  def generateUpdateExpressions(targetCols: Seq[NamedExpression], nameParts: Seq[Seq[String]],
-                                updateExprs: Seq[Expression], resolver: Resolver): Seq[Expression] = {
+  def generateUpdateExpressions(targetCols: Seq[NamedExpression],
+                                nameParts: Seq[Seq[String]],
+                                updateExprs: Seq[Expression],
+                                resolver: Resolver): Seq[Expression] = {
     assert(nameParts.size == updateExprs.size)
     val updateOps = nameParts.zip(updateExprs).map {
       case (nameParts, expr) => UpdateOperation(nameParts, expr)
@@ -92,7 +39,8 @@ class SparkSQLUtil(plan: LogicalPlan, resolver: Resolver) extends PredicateHelpe
     generateUpdateExpressions(targetCols, updateOps, resolver)
   }
 
-  protected def castIfNeeded(child: Expression, dataType: DataType): Expression = {
+  protected def castIfNeeded(child: Expression,
+                             dataType: DataType): Expression = {
     child match {
       // Need to deal with NullType here, as some types cannot be casted from NullType, e.g.,
       // StructType.
@@ -129,8 +77,11 @@ class SparkSQLUtil(plan: LogicalPlan, resolver: Resolver) extends PredicateHelpe
    * @param pathPrefix the path from root to the current (nested) column. Only used for printing out
    *                   full column path in error messages.
    */
-  protected def generateUpdateExpressions(targetCols: Seq[NamedExpression], updateOps: Seq[UpdateOperation],
-                                          resolver: Resolver, pathPrefix: Seq[String] = Nil): Seq[Expression] = {
+  // scalastyle:off method.length
+  protected def generateUpdateExpressions(targetCols: Seq[NamedExpression],
+                                          updateOps: Seq[UpdateOperation],
+                                          resolver: Resolver,
+                                          pathPrefix: Seq[String] = Nil): Seq[Expression] = {
     updateOps.foreach { u =>
       if (!targetCols.exists(f => resolver(f.name, u.targetColNameParts.head))) {
         throw new IllegalArgumentException("column not found" + (pathPrefix :+ u.targetColNameParts.head).mkString("."))
@@ -180,23 +131,5 @@ class SparkSQLUtil(plan: LogicalPlan, resolver: Resolver) extends PredicateHelpe
       }
     }
   }
-
-  def buildUpdatedColumns(updateExpressions: Seq[Expression], condition: Expression): Seq[Column] = {
-    updateExpressions.zip(plan.output).map { case (update, original) =>
-      val updated = If(condition, update, original)
-      new Column(Alias(updated, original.name)())
-    }
-  }
-
-  def buildDataFrame(spark: SparkSession, logicalPlan: LogicalPlan) : DataFrame = {
-    Dataset.ofRows(spark, logicalPlan)
-  }
-
-  override def conf: SQLConf = SparkSession.active.sqlContext.conf
-
-  case class UpdateOperation(targetColNameParts: Seq[String], updateExpr: Expression)
-}
-
-case class FakeLogicalPlan(expr: Expression, children: Seq[LogicalPlan]) extends LogicalPlan {
-  override def output: Seq[Attribute] = Nil
+  // scalastyle:on method.length
 }
