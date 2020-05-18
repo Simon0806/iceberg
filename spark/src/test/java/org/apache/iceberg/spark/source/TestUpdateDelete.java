@@ -22,17 +22,24 @@ package org.apache.iceberg.spark.source;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.api.Database;
+import org.apache.iceberg.DataFile;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.hadoop.HadoopTables;
+import org.apache.iceberg.hadoop.Util;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.iceberg.hive.HiveClientPool;
 import org.apache.iceberg.hive.TestHiveMetastore;
@@ -56,6 +63,8 @@ import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 
 import static org.apache.hadoop.hive.conf.HiveConf.ConfVars.METASTOREURIS;
+import static org.apache.iceberg.TableProperties.STAGING_TABLE_NAME_TAG;
+import static org.apache.iceberg.TableProperties.STAGING_TABLE_NAME_TAG_DEFAULT;
 import static org.apache.iceberg.types.Types.NestedField.optional;
 
 @RunWith(Parameterized.class)
@@ -157,11 +166,11 @@ public class TestUpdateDelete {
     }
   }
 
-  private void createTable(Schema schema, PartitionSpec spec) {
+  private Table createTable(Schema schema, PartitionSpec spec) {
     if (TestUpdateDelete.sourceType.equals("hadoop")) {
-      tables.create(schema, spec, dbTable);
+      return tables.create(schema, spec, dbTable);
     } else {
-      catalog.createTable(TableIdentifier.of(HIVE_DB, TABLE_NAME), schema, spec);
+      return catalog.createTable(TableIdentifier.of(HIVE_DB, TABLE_NAME), schema, spec);
     }
   }
 
@@ -685,6 +694,41 @@ public class TestUpdateDelete {
         new SimpleRecord(4, "same"))
     );
     assignments2.clear();
+  }
+
+  @Test
+  public void testStagingTableLocation() throws IOException, URISyntaxException {
+    Table baseTable = createTable(SCHEMA, PartitionSpec.builderFor(SCHEMA).identity("id").build());
+    Map<String, String> assignments = new HashMap<>();
+
+    List<SimpleRecord> create = Lists.newArrayList(
+        new SimpleRecord(1, "a1"),
+        new SimpleRecord(1, "a2")
+    );
+
+    Dataset<Row> writeDF = spark.createDataFrame(create, SimpleRecord.class);
+    writeDF.select("id", "data")
+        .write()
+        .format("iceberg")
+        .mode("append")
+        .save(dbTable);
+
+    IcebergTable sparkTable = IcebergTable.of(dbTable);
+    assignments.put("id", "0");
+    sparkTable.update("data='a1'", assignments);
+
+    String stagingTag = baseTable.properties().getOrDefault(STAGING_TABLE_NAME_TAG,
+        STAGING_TABLE_NAME_TAG_DEFAULT);
+    String stagingLocation = String.join("/", baseTable.location(), stagingTag);
+    org.apache.hadoop.fs.Path stagingPath = new org.apache.hadoop.fs.Path(stagingLocation);
+    FileSystem fs = Util.getFs(stagingPath, new Configuration());
+    Assert.assertTrue(fs.isDirectory(stagingPath));
+
+    String baseTablePath = new URI(baseTable.locationProvider().newDataLocation("")).normalize().toString();
+    for (DataFile file : baseTable.currentSnapshot().addedFiles()) {
+      String stagingFilePath = new URI(file.path().toString()).normalize().toString();
+      Assert.assertTrue(stagingFilePath.startsWith(baseTablePath));
+    }
   }
 
   private void verify(List<SimpleRecord> expected) {

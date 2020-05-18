@@ -95,8 +95,11 @@ case class StagingTableHelper(table: SparkIcebergTable) extends AnalysisHelper {
       .filter(key => key.startsWith("hadoop."))
       .foreach{ key => conf.set(key.replaceFirst("hadoop.", ""), tableProperties.get(key))}
 
+    val stagingTag = table.getIcebergTable.properties.getOrDefault(STAGING_TABLE_NAME_TAG,
+      STAGING_TABLE_NAME_TAG_DEFAULT)
+
     if (table.name().contains("/")) {
-      new HadoopCatalog(conf, table.getIcebergTable.location())
+      new HadoopCatalog(conf, Joiner.on("/").join(table.getIcebergTable.location(), stagingTag))
     } else {
       HiveCatalogs.loadCatalog(conf)
     }
@@ -145,31 +148,27 @@ case class StagingTableHelper(table: SparkIcebergTable) extends AnalysisHelper {
                                  baseTableIdentifier: TableIdentifier,
                                  stagingTag: String,
                                  stagingTableUniquer: String): (Table, TableIdentifier, String) = {
-    val conf = table.sparkSession().sessionState.newHadoopConf()
-    val tableProperties = table.getIcebergTable.properties()
-    tableProperties.keySet().asScala
-      .filter(key => key.startsWith("hadoop."))
-      .foreach{ key => conf.set(key.replaceFirst("hadoop.", ""), tableProperties.get(key))}
-
-    val properties = Maps.newHashMap[String, String](tableProperties)
-
+    val properties = Maps.newHashMap[String, String](table.getIcebergTable.properties())
+    // Separate metadata and data locations of staging table,
+    // so as to put its data files (added by "delete" operation) into the data location of the original table
+    properties.put(WRITE_NEW_DATA_LOCATION, table.getIcebergTable.locationProvider().newDataLocation(""))
     if (table.getIcebergTable.toString.contains("/")) {
       properties.remove("location")
-      // Separate metadata and data locations of staging table,
-      // so as to put its data files (added by "delete" operation) into the data location of the original table
-      properties.put(WRITE_NEW_DATA_LOCATION, table.getIcebergTable.locationProvider().newDataLocation(""))
-      val stagingTableIdentifier = TableIdentifier.of(Namespace.of(stagingTag), stagingTableUniquer)
+      val stagingTableIdentifier = TableIdentifier.of(stagingTableUniquer)
       val stagingTable = catalog.createTable(stagingTableIdentifier, table.schema(), table.getIcebergTable.spec(),
         properties)
       val tablePath = stagingTable.location()
       (stagingTable, stagingTableIdentifier, tablePath)
     } else {
+      // Manipulate "location" for HiveCatalog only.
+      // HadoopCatalog is not allowed to do that, but namespace could be used instead.
       val location = table.getIcebergTable.location()
-      properties.put("location", location + "/" + stagingTag + "/" + stagingTableUniquer)
+      val stagingLocation = location + "/" + stagingTag + "/" + stagingTableUniquer
+      properties.put("location", stagingLocation)
       val stagingTableName = Joiner.on("_").join(baseTableIdentifier.name(), stagingTag, stagingTableUniquer)
       val stagingTableIdentifier = TableIdentifier.of(baseTableIdentifier.namespace(), stagingTableName)
       val stagingTable = catalog.createTable(stagingTableIdentifier, table.schema(), table.getIcebergTable.spec(),
-        properties)
+        stagingLocation, properties)
       val tablePath =  Joiner.on(".").join(baseTableIdentifier.namespace().toString, stagingTableName)
       (stagingTable, stagingTableIdentifier, tablePath)
     }
