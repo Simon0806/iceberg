@@ -32,6 +32,7 @@ buildscript {
     classpath 'com.diffplug.spotless:spotless-plugin-gradle:3.14.0'
     classpath 'gradle.plugin.org.inferred:gradle-processors:2.1.0'
     classpath 'me.champeau.gradle:jmh-gradle-plugin:0.4.8'
+    classpath 'com.commercehub.gradle.plugin:gradle-avro-plugin:0.18.0'
   }
 }
 
@@ -450,6 +451,104 @@ project(':iceberg-spark-runtime') {
     relocate 'com.carrotsearch', 'org.apache.iceberg.shaded.com.carrotsearch'
 
     archiveName = "iceberg-spark-runtime-${version}.${extension}"
+  }
+}
+
+project(':iceberg-flink') {
+  apply plugin: 'com.commercehub.gradle.plugin.avro'
+
+  dependencies {
+    compile project(':iceberg-data')
+    compile project(':iceberg-hive')
+    compile project(':iceberg-parquet')
+
+    compileOnly("org.apache.flink:flink-streaming-java_2.11") {
+      exclude group: 'com.esotericsoftware.kryo', module: 'kryo'
+      exclude group: 'com.github.scopt', module: 'scopt_2.11'
+      exclude group: 'com.typesafe'
+      exclude group: 'com.typesafe.akka'
+      exclude group: 'org.clapper', module: 'grizzled-slf4j_2.11'
+      exclude group: 'org.reactivestreams', module: 'reactive-streams'
+    }
+    compileOnly("org.apache.flink:flink-connector-filesystem_2.11")
+    compileOnly("org.apache.hadoop:hadoop-client") {
+      exclude group: 'org.apache.avro', module: 'avro'
+      exclude group: 'org.slf4j', module: 'slf4j-log4j12'
+    }
+    compileOnly("org.apache.hive:hive-metastore") {
+      exclude group: 'org.apache.avro', module: 'avro'
+      exclude group: 'org.slf4j', module: 'slf4j-log4j12'
+      exclude group: 'org.pentaho' // missing dependency
+      exclude group: 'org.apache.hbase'
+      exclude group: 'org.apache.logging.log4j'
+      exclude group: 'co.cask.tephra'
+      exclude group: 'com.google.code.findbugs', module: 'jsr305'
+      exclude group: 'org.eclipse.jetty.aggregate', module: 'jetty-all'
+      exclude group: 'org.eclipse.jetty.orbit', module: 'javax.servlet'
+      exclude group: 'org.apache.parquet', module: 'parquet-hadoop-bundle'
+      exclude group: 'com.tdunning', module: 'json'
+      exclude group: 'javax.transaction', module: 'transaction-api'
+      exclude group: 'com.zaxxer', module: 'HikariCP'
+    }
+  }
+}
+
+// the runtime uber jar for Flink
+project(':iceberg-flink-runtime') {
+  apply plugin: 'com.github.johnrengelman.shadow'
+
+  tasks.assemble.dependsOn tasks.shadowJar
+  tasks.install.dependsOn tasks.shadowJar
+  tasks.javadocJar.dependsOn tasks.shadowJar
+
+  configurations {
+    compileOnly {
+      exclude group: 'org.slf4j'
+      exclude group: 'org.apache.commons'
+      exclude group: 'commons-pool'
+      exclude group: 'org.xerial.snappy'
+      exclude group: 'javax.annotation'
+    }
+  }
+
+  dependencies {
+    compileOnly project(':iceberg-flink')
+  }
+
+  shadowJar {
+    // shade compileOnly dependencies to avoid including in transitive dependencies
+    configurations = [project.configurations.compileOnly]
+
+    zip64 true
+
+    // include the LICENSE and NOTICE files for the shaded Jar
+    from(projectDir) {
+      include 'LICENSE'
+      include 'NOTICE'
+      include 'DISCLAIMER'
+    }
+
+    // Relocate dependencies to avoid conflicts
+    relocate 'com.google', 'org.apache.iceberg.shaded.com.google'
+    relocate 'com.fasterxml', 'org.apache.iceberg.shaded.com.fasterxml'
+    relocate 'com.github.benmanes', 'org.apache.iceberg.shaded.com.github.benmanes'
+    relocate 'org.checkerframework', 'org.apache.iceberg.shaded.org.checkerframework'
+    relocate 'org.apache.avro', 'org.apache.iceberg.shaded.org.apache.avro'
+    relocate 'avro.shaded', 'org.apache.iceberg.shaded.org.apache.avro.shaded'  // TODO: not used
+    relocate 'com.thoughtworks.paranamer', 'org.apache.iceberg.shaded.com.thoughtworks.paranamer'  // TODO: not used
+    relocate 'org.apache.parquet', 'org.apache.iceberg.shaded.org.apache.parquet'
+    relocate 'shaded.parquet', 'org.apache.iceberg.shaded.org.apache.parquet.shaded'  // TODO: not used
+    // relocate Avro's jackson dependency to share parquet-jackson locations
+    // TODO: not used
+    relocate 'org.codehaus.jackson', 'org.apache.iceberg.shaded.org.apache.parquet.shaded.org.codehaus.jackson'
+    relocate 'org.apache.orc', 'org.apache.iceberg.shaded.org.apache.orc'  // of help when ORC is supported
+    relocate 'io.airlift', 'org.apache.iceberg.shaded.io.airlift'  // TODO: not used
+    // relocate Arrow and related deps to shade Iceberg specific version
+    relocate 'io.netty.buffer', 'org.apache.iceberg.shaded.io.netty.buffer'  // TODO: not used
+    relocate 'org.apache.arrow', 'org.apache.iceberg.shaded.org.apache.arrow'  // TODO: not used
+    relocate 'com.carrotsearch', 'org.apache.iceberg.shaded.com.carrotsearch'  // TODO: not used
+
+    archiveName = "iceberg-flink-runtime-${version}.${extension}"
   }
 }
 
