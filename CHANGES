@@ -19,13 +19,16 @@
 
 Tencent changes:
 
-60194bb4 | Flink Iceberg sink (based on open source PR #856) [seanxiangli] | 2020-05-20
-90320390 | [ISSUE-79] Support time type in GenericAvroReader and Writer. Back-port #1015 from open source [seanxiangli] | 2020-05-18
-3b770145 | Fix staging location issue  [Junjie Chen] | 2020-05-18
-8192933a | Add merge into support [Junjie Chen] | 2020-05-14
-5e3108a4 | Fix UT error in merging upstream/master code [jerryshao] | 2020-05-07
-b9bed487 | [ISSUE-77] Support timestamp without zone in GenericParquetWriter. Back-port #965 from open source. To be reverted when #891 is merged [seanxiangli] | 2020-05-06
-e45bf471 | Fix update/delete table NPE issue [Chen, Junjie] | 2020-04-08
-9f519a0a | Add Spark Structured Streaming read support in Iceberg [jerryshao] | 2020-03-31
-31adf95a | Refactor the current code [jerryshao] | 2020-03-30
-aebdbaa0 | Add update delete support [Chen, Junjie] | 2020-03-17
+0.8.0-1-tencent
+  60194bb4 | Flink Iceberg sink (based on open source PR #856) [seanxiangli] | 2020-05-20
+  90320390 | [ISSUE-79] Support time type in GenericAvroReader and Writer. Back-port #1015 from open source [seanxiangli] | 2020-05-18
+  3b770145 | Fix staging location issue  [Junjie Chen] | 2020-05-18
+  8192933a | Add merge into support [Junjie Chen] | 2020-05-14
+  5e3108a4 | Fix UT error in merging upstream/master code [jerryshao] | 2020-05-07
+  b9bed487 | [ISSUE-77] Support timestamp without zone in GenericParquetWriter. Back-port #965 from open source. To be reverted when #891 is merged [seanxiangli] | 2020-05-06
+
+0.7.0-1-tencent
+  e45bf471 | Fix update/delete table NPE issue [Chen, Junjie] | 2020-04-08
+  9f519a0a | Add Spark Structured Streaming read support in Iceberg [jerryshao] | 2020-03-31
+  31adf95a | Refactor the current code [jerryshao] | 2020-03-30
+  aebdbaa0 | Add update delete support [Chen, Junjie] | 2020-03-17
