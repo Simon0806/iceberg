@@ -12,7 +12,7 @@ org.apache.commons:commons-lang3 = 3.9
 com.fasterxml.jackson.*:* = 2.10.0
 com.github.ben-manes.caffeine:caffeine = 2.7.0
 org.apache.arrow:arrow-vector = 0.14.1
-org.apache.flink:* = 1.10.0
+org.apache.flink:* = 1.7-tdflink-0.2.6
 
 # test deps
 junit:junit = 4.12

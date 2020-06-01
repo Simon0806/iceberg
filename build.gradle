@@ -49,6 +49,7 @@ allprojects {
   group = "org.apache.iceberg"
   version = getProjectVersion()
   repositories {
+    maven { url "http://maven.data.oa.com/nexus/content/repositories/releases/" }
     maven { url  "http://palantir.bintray.com/releases" }
     mavenCentral()
     mavenLocal()
