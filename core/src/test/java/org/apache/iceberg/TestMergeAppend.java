@@ -19,21 +19,21 @@
 
 package org.apache.iceberg;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 import java.io.File;
 import java.io.IOException;
 import java.util.List;
 import java.util.Set;
 import org.apache.iceberg.ManifestEntry.Status;
 import org.apache.iceberg.exceptions.CommitFailedException;
+import org.apache.iceberg.relocated.com.google.common.collect.Lists;
+import org.apache.iceberg.relocated.com.google.common.collect.Sets;
 import org.apache.iceberg.types.Types;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 
-import static com.google.common.collect.Iterators.concat;
+import static org.apache.iceberg.relocated.com.google.common.collect.Iterators.concat;
 
 @RunWith(Parameterized.class)
 public class TestMergeAppend extends TableTestBase {
@@ -745,7 +745,7 @@ public class TestMergeAppend extends TableTestBase {
         initialManifest, pending.manifests().get(1));
 
     // field ids of manifest entries in two manifests with different specs of the same source field should be different
-    ManifestEntry entry = ManifestFiles.read(pending.manifests().get(0), FILE_IO).entries().iterator().next();
+    ManifestEntry<DataFile> entry = ManifestFiles.read(pending.manifests().get(0), FILE_IO).entries().iterator().next();
     Types.NestedField field = ((PartitionData) entry.file().partition()).getPartitionType().fields().get(0);
     Assert.assertEquals(1000, field.fieldId());
     Assert.assertEquals("id_bucket", field.name());
