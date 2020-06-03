@@ -134,8 +134,13 @@ public interface CloseableIterable<T> extends Iterable<T>, Closeable {
       }
 
       @Override
-      public Iterator<O> iterator() {
-        return new Iterator<O>() {
+      public CloseableIterator<O> iterator() {
+        return new CloseableIterator<O>() {
+          @Override
+          public void close() throws IOException {
+            iterable.close();
+          }
+
           private final Iterator<I> inner = iterable.iterator();
           private long index = 0;
 

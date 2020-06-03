@@ -114,7 +114,7 @@ project(':iceberg-bundled-guava') {
 
   tasks.jar.dependsOn tasks.shadowJar
 
-  dependencies {    
+  dependencies {
     compileOnly('com.google.guava:guava') {
       exclude group: 'com.google.code.findbugs'
       // may be LGPL - use ALv2 findbugs-annotations instead
@@ -150,6 +150,11 @@ project(':iceberg-bundled-guava') {
   }
 }
 
+apply from: 'baseline.gradle'
+apply from: 'deploy.gradle'
+apply from: 'tasks.gradle'
+apply from: 'jmh.gradle'
+
 project(':iceberg-api') {
   dependencies {
     compile project(path: ':iceberg-bundled-guava', configuration: 'shadow')
@@ -163,7 +168,7 @@ project(':iceberg-common') {
     compile project(path: ':iceberg-bundled-guava', configuration: 'shadow')
   }
 }
-     
+
 project(':iceberg-core') {
   dependencies {
     compile project(':iceberg-api')
@@ -635,9 +640,4 @@ String getJavadocVersion() {
     throw new Exception("Neither version.txt nor git version exists")
   }
 }
-
-apply from: 'baseline.gradle'
-apply from: 'deploy.gradle'
-apply from: 'tasks.gradle'
-apply from: 'jmh.gradle'
 
