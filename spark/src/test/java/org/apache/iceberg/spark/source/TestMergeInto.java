@@ -19,8 +19,6 @@
 
 package org.apache.iceberg.spark.source;
 
-import com.google.common.base.Joiner;
-import com.google.common.collect.Lists;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -36,6 +34,8 @@ import org.apache.iceberg.hadoop.HadoopTables;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.iceberg.hive.HiveClientPool;
 import org.apache.iceberg.hive.TestHiveMetastore;
+import org.apache.iceberg.relocated.com.google.common.base.Joiner;
+import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.apache.iceberg.spark.IcebergTable;
 import org.apache.iceberg.types.Types;
 import org.apache.spark.sql.Dataset;

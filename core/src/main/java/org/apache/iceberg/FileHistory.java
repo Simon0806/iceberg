@@ -19,16 +19,16 @@
 
 package org.apache.iceberg;
 
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 import java.io.IOException;
 import java.util.List;
 import java.util.Set;
 import org.apache.iceberg.exceptions.RuntimeIOException;
 import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
+import org.apache.iceberg.relocated.com.google.common.collect.Iterables;
+import org.apache.iceberg.relocated.com.google.common.collect.Lists;
+import org.apache.iceberg.relocated.com.google.common.collect.Sets;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.CharSequenceWrapper;
 
@@ -80,7 +80,7 @@ public class FileHistory {
     }
 
     @SuppressWarnings("unchecked")
-    public Iterable<ManifestEntry> build() {
+    public Iterable<ManifestEntry<?>> build() {
       Iterable<Snapshot> snapshots = table.snapshots();
 
       if (startTime != null) {
@@ -100,11 +100,11 @@ public class FileHistory {
       // a manifest group will only read each manifest once
       ManifestGroup group = new ManifestGroup(((HasTableOperations) table).operations().io(), manifests);
 
-      List<ManifestEntry> results = Lists.newArrayList();
-      try (CloseableIterable<ManifestEntry> entries = group.select(HISTORY_COLUMNS).entries()) {
+      List<ManifestEntry<?>> results = Lists.newArrayList();
+      try (CloseableIterable<ManifestEntry<DataFile>> entries = group.select(HISTORY_COLUMNS).entries()) {
         // TODO: replace this with an IN predicate
         CharSequenceWrapper locationWrapper = CharSequenceWrapper.wrap(null);
-        for (ManifestEntry entry : entries) {
+        for (ManifestEntry<?> entry : entries) {
           if (entry != null && locations.contains(locationWrapper.set(entry.file().path()))) {
             results.add(entry.copy());
           }
