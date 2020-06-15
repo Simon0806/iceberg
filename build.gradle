@@ -552,27 +552,25 @@ project(':iceberg-flink') {
 project(':iceberg-flink-runtime') {
   apply plugin: 'com.github.johnrengelman.shadow'
 
-  tasks.assemble.dependsOn tasks.shadowJar
-  tasks.install.dependsOn tasks.shadowJar
-  tasks.javadocJar.dependsOn tasks.shadowJar
+  tasks.jar.dependsOn tasks.shadowJar
 
   configurations {
-    compileOnly {
+    compile {
       exclude group: 'org.slf4j'
       exclude group: 'org.apache.commons'
       exclude group: 'commons-pool'
       exclude group: 'org.xerial.snappy'
       exclude group: 'javax.annotation'
+      exclude group: 'com.google.errorprone'
     }
   }
 
   dependencies {
-    compileOnly project(':iceberg-flink')
+    compile project(':iceberg-flink')
   }
 
   shadowJar {
-    // shade compileOnly dependencies to avoid including in transitive dependencies
-    configurations = [project.configurations.compileOnly]
+    configurations = [project.configurations.compile]
 
     zip64 true
 
@@ -580,11 +578,9 @@ project(':iceberg-flink-runtime') {
     from(projectDir) {
       include 'LICENSE'
       include 'NOTICE'
-      include 'DISCLAIMER'
     }
 
     // Relocate dependencies to avoid conflicts
-    relocate 'com.google', 'org.apache.iceberg.shaded.com.google'
     relocate 'com.fasterxml', 'org.apache.iceberg.shaded.com.fasterxml'
     relocate 'com.github.benmanes', 'org.apache.iceberg.shaded.com.github.benmanes'
     relocate 'org.checkerframework', 'org.apache.iceberg.shaded.org.checkerframework'
@@ -603,7 +599,11 @@ project(':iceberg-flink-runtime') {
     relocate 'org.apache.arrow', 'org.apache.iceberg.shaded.org.apache.arrow'  // TODO: not used
     relocate 'com.carrotsearch', 'org.apache.iceberg.shaded.com.carrotsearch'  // TODO: not used
 
-    archiveName = "iceberg-flink-runtime-${version}.${extension}"
+    classifier null
+  }
+
+  jar {
+    classifier = 'empty'
   }
 }
 
