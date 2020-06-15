@@ -12,7 +12,7 @@ com.fasterxml.jackson.*:* = 2.10.0
 com.google.guava:guava = 28.0-jre
 com.github.ben-manes.caffeine:caffeine = 2.7.0
 org.apache.arrow:arrow-vector = 0.14.1
-org.apache.flink:* = 1.7-tdflink-0.2.6
+org.apache.flink:* = 1.9-tq-0.1.0
 
 # test deps
 junit:junit = 4.12
