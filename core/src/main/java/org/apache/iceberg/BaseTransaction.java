@@ -163,6 +163,15 @@ class BaseTransaction implements Transaction {
   }
 
   @Override
+  public RowDelta newRowDelta() {
+    checkLastOperationCommitted("RowDelta");
+    RowDelta delta = new BaseRowDelta(tableName, transactionOps);
+    delta.deleteWith(enqueueDelete);
+    updates.add(delta);
+    return delta;
+  }
+
+  @Override
   public ReplacePartitions newReplacePartitions() {
     checkLastOperationCommitted("ReplacePartitions");
     ReplacePartitions replacePartitions = new BaseReplacePartitions(tableName, transactionOps);
@@ -395,7 +404,7 @@ class BaseTransaction implements Transaction {
       Snapshot snap = ops.current().snapshot(snapshotId);
       if (snap != null) {
         committedFiles.add(snap.manifestListLocation());
-        snap.manifests()
+        snap.allManifests()
             .forEach(manifest -> committedFiles.add(manifest.path()));
       } else {
         return null;
@@ -565,6 +574,11 @@ class BaseTransaction implements Transaction {
     @Override
     public OverwriteFiles newOverwrite() {
       return BaseTransaction.this.newOverwrite();
+    }
+
+    @Override
+    public RowDelta newRowDelta() {
+      return BaseTransaction.this.newRowDelta();
     }
 
     @Override
