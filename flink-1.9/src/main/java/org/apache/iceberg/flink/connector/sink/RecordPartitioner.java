@@ -22,10 +22,10 @@ package org.apache.iceberg.flink.connector.sink;
 import java.lang.reflect.Array;
 import java.util.List;
 import java.util.Map;
+import org.apache.flink.types.Row;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
-import org.apache.iceberg.data.Record;
 import org.apache.iceberg.relocated.com.google.common.collect.Maps;
 import org.apache.iceberg.transforms.Transform;
 import org.apache.iceberg.types.Type;
@@ -33,9 +33,9 @@ import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.DateTimeUtil;
 
-class RecordPartitioner extends AbstractPartitioner<Record> {
+class RecordPartitioner extends AbstractPartitioner<Row> {
 
-  private final Accessor<Record>[] accessors;
+  private final Accessor<Row>[] accessors;
 
   @SuppressWarnings("unchecked")
   RecordPartitioner(PartitionSpec spec) {
@@ -44,11 +44,11 @@ class RecordPartitioner extends AbstractPartitioner<Record> {
     final Schema schema = spec.schema();
     final List<PartitionField> fields = spec.fields();
     final int numFields = fields.size();
-    this.accessors = (Accessor<Record>[]) Array.newInstance(Accessor.class, numFields);
-    final Map<Integer, Accessor<Record>> idToAccessorMap = buildAccessors(schema);
+    this.accessors = (Accessor<Row>[]) Array.newInstance(Accessor.class, numFields);
+    final Map<Integer, Accessor<Row>> idToAccessorMap = buildAccessors(schema);
     for (int i = 0; i < numFields; i += 1) {
       PartitionField field = fields.get(i);
-      Accessor<Record> accessor = idToAccessorMap.get(field.sourceId());
+      Accessor<Row> accessor = idToAccessorMap.get(field.sourceId());
       if (accessor == null) {
         throw new RuntimeException(
             "Cannot build accessor for field: " + schema.findField(field.sourceId()));
@@ -78,7 +78,7 @@ class RecordPartitioner extends AbstractPartitioner<Record> {
 
   @SuppressWarnings("unchecked")
   @Override
-  public void partition(Record record) {
+  public void partition(Row record) {
     for (int i = 0; i < partitionTuple.length; i += 1) {
       Transform<Object, Object> transform = transforms[i];
       partitionTuple[i] = transform.apply(accessors[i].get(record));
@@ -89,11 +89,11 @@ class RecordPartitioner extends AbstractPartitioner<Record> {
     Object get(T container);
   }
 
-  private static Map<Integer, Accessor<Record>> buildAccessors(Schema schema) {
+  private static Map<Integer, Accessor<Row>> buildAccessors(Schema schema) {
     return TypeUtil.visit(schema, new BuildPositionAccessors());
   }
 
-  private static Accessor<Record> newAccessor(int position, Type type) {
+  private static Accessor<Row> newAccessor(int position, Type type) {
     switch (type.typeId()) {
       case TIMESTAMP:
         return new TimeStampAccessor(position, ((Types.TimestampType) type).shouldAdjustToUTC());
@@ -106,8 +106,8 @@ class RecordPartitioner extends AbstractPartitioner<Record> {
     }
   }
 
-  private static Accessor<Record> newAccessor(int position, boolean isOptional,
-                                              Accessor<Record> accessor) {
+  private static Accessor<Row> newAccessor(int position, boolean isOptional,
+                                              Accessor<Row> accessor) {
     if (isOptional) {
       // the wrapped position handles null layers
       return new WrappedPositionAccessor(position, accessor);
@@ -121,23 +121,23 @@ class RecordPartitioner extends AbstractPartitioner<Record> {
   }
 
   private static class BuildPositionAccessors
-      extends TypeUtil.SchemaVisitor<Map<Integer, Accessor<Record>>> {
+      extends TypeUtil.SchemaVisitor<Map<Integer, Accessor<Row>>> {
     @Override
-    public Map<Integer, Accessor<Record>> schema(
-        Schema schema, Map<Integer, Accessor<Record>> structResult) {
+    public Map<Integer, Accessor<Row>> schema(
+        Schema schema, Map<Integer, Accessor<Row>> structResult) {
       return structResult;
     }
 
     @Override
-    public Map<Integer, Accessor<Record>> struct(
-        Types.StructType struct, List<Map<Integer, Accessor<Record>>> fieldResults) {
-      Map<Integer, Accessor<Record>> accessors = Maps.newHashMap();
+    public Map<Integer, Accessor<Row>> struct(
+        Types.StructType struct, List<Map<Integer, Accessor<Row>>> fieldResults) {
+      Map<Integer, Accessor<Row>> accessors = Maps.newHashMap();
       List<Types.NestedField> fields = struct.fields();
       for (int i = 0; i < fieldResults.size(); i += 1) {
         Types.NestedField field = fields.get(i);
-        Map<Integer, Accessor<Record>> result = fieldResults.get(i);
+        Map<Integer, Accessor<Row>> result = fieldResults.get(i);
         if (result != null) {
-          for (Map.Entry<Integer, Accessor<Record>> entry : result.entrySet()) {
+          for (Map.Entry<Integer, Accessor<Row>> entry : result.entrySet()) {
             accessors.put(entry.getKey(), newAccessor(i, field.isOptional(), entry.getValue()));
           }
         } else {
@@ -153,13 +153,13 @@ class RecordPartitioner extends AbstractPartitioner<Record> {
     }
 
     @Override
-    public Map<Integer, Accessor<Record>> field(
-        Types.NestedField field, Map<Integer, Accessor<Record>> fieldResult) {
+    public Map<Integer, Accessor<Row>> field(
+        Types.NestedField field, Map<Integer, Accessor<Row>> fieldResult) {
       return fieldResult;
     }
   }
 
-  private static class PositionAccessor implements Accessor<Record> {
+  private static class PositionAccessor implements Accessor<Row> {
     private final int position;
 
     private PositionAccessor(int position) {
@@ -167,8 +167,8 @@ class RecordPartitioner extends AbstractPartitioner<Record> {
     }
 
     @Override
-    public Object get(Record record) {
-      return record.get(position);
+    public Object get(Row record) {
+      return record.getField(position);
     }
 
     int position() {
@@ -176,7 +176,7 @@ class RecordPartitioner extends AbstractPartitioner<Record> {
     }
   }
 
-  private static class Position2Accessor implements Accessor<Record> {
+  private static class Position2Accessor implements Accessor<Row> {
     private final int p0;
     private final int p1;
 
@@ -186,13 +186,13 @@ class RecordPartitioner extends AbstractPartitioner<Record> {
     }
 
     @Override
-    public Object get(Record record) {
-      Record inner = (Record) record.get(p0);
-      return inner.get(p1);
+    public Object get(Row record) {
+      Row inner = (Row) record.getField(p0);
+      return inner.getField(p1);
     }
   }
 
-  private static class Position3Accessor implements Accessor<Record> {
+  private static class Position3Accessor implements Accessor<Row> {
     private final int p0;
     private final int p1;
     private final int p2;
@@ -204,25 +204,25 @@ class RecordPartitioner extends AbstractPartitioner<Record> {
     }
 
     @Override
-    public Object get(Record record) {
-      Record inner = (Record) record.get(p0);
-      Record inner2 = (Record) inner.get(p1);
-      return inner2.get(p2);
+    public Object get(Row record) {
+      Row inner = (Row) record.getField(p0);
+      Row inner2 = (Row) inner.getField(p1);
+      return inner2.getField(p2);
     }
   }
 
-  private static class WrappedPositionAccessor implements Accessor<Record> {
+  private static class WrappedPositionAccessor implements Accessor<Row> {
     private final int position;
-    private final Accessor<Record> accessor;
+    private final Accessor<Row> accessor;
 
-    private WrappedPositionAccessor(int position, Accessor<Record> accessor) {
+    private WrappedPositionAccessor(int position, Accessor<Row> accessor) {
       this.position = position;
       this.accessor = accessor;
     }
 
     @Override
-    public Object get(Record record) {
-      Record inner = (Record) record.get(position);
+    public Object get(Row record) {
+      Row inner = (Row) record.getField(position);
       if (inner != null) {
         return accessor.get(inner);
       }
@@ -239,10 +239,10 @@ class RecordPartitioner extends AbstractPartitioner<Record> {
     }
 
     @Override
-    public Object get(Record record) {
+    public Object get(Row record) {
       return withZone ?
-        DateTimeUtil.microsFromTimestamptz(record.get(position(), java.time.OffsetDateTime.class)) :
-        DateTimeUtil.microsFromTimestamp(record.get(position(), java.time.LocalDateTime.class));
+        DateTimeUtil.microsFromTimestamptz((java.time.OffsetDateTime) record.getField(position())) :
+        DateTimeUtil.microsFromTimestamp((java.time.LocalDateTime) record.getField(position()));
     }
   }
 
@@ -252,8 +252,8 @@ class RecordPartitioner extends AbstractPartitioner<Record> {
     }
 
     @Override
-    public Object get(Record record) {
-      return DateTimeUtil.microsFromTime(record.get(position(), java.time.LocalTime.class));
+    public Object get(Row record) {
+      return DateTimeUtil.microsFromTime((java.time.LocalTime) record.getField(position()));
     }
   }
 
@@ -263,8 +263,8 @@ class RecordPartitioner extends AbstractPartitioner<Record> {
     }
 
     @Override
-    public Object get(Record record) {
-      return DateTimeUtil.daysFromDate(record.get(position(), java.time.LocalDate.class));
+    public Object get(Row record) {
+      return DateTimeUtil.daysFromDate((java.time.LocalDate) record.getField(position()));
     }
   }
 }

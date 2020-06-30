@@ -330,11 +330,11 @@ public class GenericFlinkManifestFile implements FlinkManifestFile {
 
   @Override
   public long sequenceNumber() {
-    return 0;  // TODO
+    return -1;  // TODO
   }
 
   @Override
   public long minSequenceNumber() {
-    return 0;  // TODO
+    return -1;  // TODO
   }
 }

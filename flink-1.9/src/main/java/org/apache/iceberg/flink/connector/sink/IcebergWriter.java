@@ -36,6 +36,7 @@ import org.apache.flink.streaming.api.operators.ChainingStrategy;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.streaming.runtime.tasks.ProcessingTimeService;
+import org.apache.flink.types.Row;
 import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.MetricsConfig;
@@ -43,11 +44,10 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.avro.Avro;
-import org.apache.iceberg.data.Record;
 import org.apache.iceberg.data.avro.DataWriter;
-import org.apache.iceberg.data.parquet.GenericParquetWriter;
 import org.apache.iceberg.exceptions.RuntimeIOException;
 import org.apache.iceberg.flink.connector.IcebergConnectorConstant;
+import org.apache.iceberg.flink.connector.data.FlinkParquetWriters;
 import org.apache.iceberg.io.FileAppender;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.LocationProvider;
@@ -75,7 +75,7 @@ public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
   private final LocationProvider locations;
   private final FileIO io;
   private final Map<String, String> properties;
-  private final String timestampFeild;
+  private final String timestampField;
   private final TimeUnit timestampUnit;
   private final long maxFileSize;
 
@@ -83,15 +83,26 @@ public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
   private transient Map<String, FileWriter> openPartitionFiles;
   private transient int subtaskId;
   private transient ProcessingTimeService timerService;
-  private transient Partitioner<Record> partitioner;
+  private transient Partitioner<Row> partitioner;
 
   public IcebergWriter(Table table, @Nullable RecordSerializer<IN> serializer, Configuration config) {
     this.serializer = serializer;
     skipIncompatibleRecord = config.getBoolean(IcebergConnectorConstant.SKIP_INCOMPATIBLE_RECORD,
         IcebergConnectorConstant.DEFAULT_SKIP_INCOMPATIBLE_RECORD);
-    timestampFeild = config.getString(IcebergConnectorConstant.WATERMARK_TIMESTAMP_FIELD, "");
+
+    // When timestampField inputted is
+    // (1) A field name (i.e. neither null nor an empty string), the logic extracts the named field.
+    // (2) Null or an empty string, the related logic does not get executed (i.e. disabled).
+    // See WatermarkTimeExtractor for details.
+    timestampField = config.getString(IcebergConnectorConstant.WATERMARK_TIMESTAMP_FIELD, "");
+    // Watermark timestamp function is not fully tested, so disable it for now.
+    // When timestampField is a field name (i.e. neither null nor an empty string), throw an exception to exit.
+    if (!(timestampField == null || "".equals(timestampField))) {
+      throw new IllegalArgumentException("Watermark timestamp function is disabled");
+    }
     timestampUnit = TimeUnit.valueOf(config.getString(IcebergConnectorConstant.WATERMARK_TIMESTAMP_UNIT,
         IcebergConnectorConstant.DEFAULT_WATERMARK_TIMESTAMP_UNIT));
+
     maxFileSize = config.getLong(IcebergConnectorConstant.MAX_FILE_SIZE,
         IcebergConnectorConstant.DEFAULT_MAX_FILE_SIZE);
 
@@ -211,8 +222,6 @@ public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
         LOG.info("Iceberg writer {}.{} subtask {} completed aborting file: {}",
             namespace, tableName, subtaskId, path);
       } catch (Throwable t) {
-//                LOG.error(String.format("Iceberg writer %s.%s subtask %d failed to abort open file: %s",
-//                        namespace, tableName, subtaskId, path.toString()), t);
         LOG.error("Iceberg writer {}.{} subtask {} failed to abort open file: {}. Throwable = {}",
             namespace, tableName, subtaskId, path.toString(), t);
         continue;
@@ -225,9 +234,6 @@ public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
         LOG.info("Iceberg writer {}.{} subtask {} deleted aborted file: {}",
             namespace, tableName, subtaskId, path);
       } catch (Throwable t) {
-//                LOG.error(String.format(
-//                        "Iceberg writer %s.%s subtask %d failed to delete aborted file: %s",
-//                        namespace, tableName, subtaskId, path.toString()), t);
         LOG.error("Iceberg writer {}.{} subtask {} failed to delete aborted file: {}. Throwable = {}",
             namespace, tableName, subtaskId, path.toString(), t);
       }
@@ -251,14 +257,14 @@ public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
 
   @VisibleForTesting
   void processInternal(IN value) throws Exception {
-    Record record = serializer.serialize(value, schema);
+    Row record = serializer.serialize(value, schema);
     processRecord(record);
   }
 
   /**
-   * process element as {@link Record}
+   * process element as {@Flink Row}
    */
-  private void processRecord(Record record) throws Exception {
+  private void processRecord(Row record) throws Exception {
     if (partitioner == null) {
       partitioner = new RecordPartitioner(spec);
     }
@@ -291,8 +297,8 @@ public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
         String.format("%d_%d_%s", subtaskId, System.currentTimeMillis(), UUID.randomUUID().toString()));
   }
 
-  private FileWriter newWriter(final Path path, final Partitioner<Record> part) throws Exception {
-    FileAppender<Record> appender = newAppender(io.newOutputFile(path.toString()));
+  private FileWriter newWriter(final Path path, final Partitioner<Row> part) throws Exception {
+    FileAppender<Row> appender = newAppender(io.newOutputFile(path.toString()));
     FileWriter writer = FileWriter.builder()
         .withFileFormat(format)
         .withPath(path)
@@ -302,20 +308,20 @@ public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
         .withHadooopConfig(hadoopConf)
         .withSpec(spec)
         .withSchema(schema)
-        .withTimestampField(timestampFeild)
+        .withTimestampField(timestampField)
         .withTimestampUnit(timestampUnit)
         .build();
     return writer;
   }
 
 
-  private FileAppender<Record> newAppender(OutputFile file) throws Exception {
+  private FileAppender<Row> newAppender(OutputFile file) throws Exception {
     MetricsConfig metricsConfig = MetricsConfig.fromProperties(properties);
     try {
       switch (format) {
         case PARQUET:
           return Parquet.write(file)
-              .createWriterFunc(GenericParquetWriter::buildWriter)
+              .createWriterFunc(FlinkParquetWriters::buildRowWriter)
               .setAll(properties)
               .metricsConfig(metricsConfig)
               .schema(schema)

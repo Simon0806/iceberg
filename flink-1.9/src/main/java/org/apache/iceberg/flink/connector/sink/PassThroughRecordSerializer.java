@@ -19,13 +19,13 @@
 
 package org.apache.iceberg.flink.connector.sink;
 
+import org.apache.flink.types.Row;
 import org.apache.iceberg.Schema;
-import org.apache.iceberg.data.Record;
 
 /**
- * Pass {@link Record} directly, without any operations
+ * Pass Flink's {@link Row} directly, without any operations
  */
-public class PassThroughRecordSerializer implements RecordSerializer<Record> {
+public class PassThroughRecordSerializer implements RecordSerializer<Row> {
 
   private static final PassThroughRecordSerializer INSTANCE = new PassThroughRecordSerializer();
 
@@ -34,7 +34,7 @@ public class PassThroughRecordSerializer implements RecordSerializer<Record> {
   }
 
   @Override
-  public Record serialize(Record record, Schema schema) {
-    return record;
+  public Row serialize(Row row, Schema schema) {
+    return row;
   }
 }

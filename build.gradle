@@ -56,7 +56,7 @@ allprojects {
   group = "org.apache.iceberg"
   version = getProjectVersion()
   repositories {
-    maven { url "http://mirrors.tencent.com/repository/maven/tianqiong-releases" }
+    maven { url "http://mirrors.tencent.com/repository/maven/tianqiong-releases" }  // Tencent's Flink 1.9-tq-0.1.0
     maven { url "http://palantir.bintray.com/releases" }
     mavenCentral()
     mavenLocal()

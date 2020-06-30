@@ -20,14 +20,14 @@
 package org.apache.iceberg.flink.connector.sink;
 
 import java.io.Serializable;
+import org.apache.flink.types.Row;
 import org.apache.iceberg.Schema;
-import org.apache.iceberg.data.Record;
 
 /**
- * Serialize input data type to {@link Record} of Iceberg
+ * Serialize input data type to {@link Row} of Flink
  */
 @FunctionalInterface
 public interface RecordSerializer<IN> extends Serializable {
   // TODO: input parameter should be schema in Iceberg?
-  Record serialize(IN record, Schema schema) throws Exception;
+  Row serialize(IN record, Schema schema) throws Exception;
 }

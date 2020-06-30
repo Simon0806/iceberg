@@ -24,8 +24,8 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.DataStreamSink;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
+import org.apache.flink.types.Row;
 import org.apache.iceberg.Table;
-import org.apache.iceberg.data.Record;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -53,7 +53,7 @@ public class IcebergSinkAppender<IN> {
   /**
    * Required.
    *
-   * @param serializer Serialize input data type to Iceberg {@link Record}
+   * @param serializer Serialize input data type to Flink's {@link Row}
    */
   public IcebergSinkAppender<IN> withSerializer(RecordSerializer<IN> serializer) {
     this.serializer = serializer;

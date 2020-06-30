@@ -19,15 +19,16 @@
 
 package org.apache.iceberg.flink.connector.sink;
 
-import java.time.LocalTime;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import org.apache.flink.types.Row;
 import org.apache.iceberg.Schema;
-import org.apache.iceberg.data.Record;
 import org.apache.iceberg.relocated.com.google.common.base.Splitter;
 import org.apache.iceberg.relocated.com.google.common.base.Strings;
 import org.apache.iceberg.types.Type;
+import org.apache.iceberg.types.Types;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -35,27 +36,31 @@ public class WatermarkTimeExtractor {
   private static final Logger LOG = LoggerFactory.getLogger(WatermarkTimeExtractor.class);
 
   private final TimeUnit timestampUnit;
-  private final List<String> timestampFieldChain;
+  private final List<Integer> timestampFieldChain;
 
   public WatermarkTimeExtractor(Schema schema, String timestampFieldChainAsString, TimeUnit timestampUnit) {
     this.timestampUnit = timestampUnit;
     this.timestampFieldChain = getTimestampFieldChain(schema, timestampFieldChainAsString);
   }
 
-  private List<String> getTimestampFieldChain(Schema schema, String timestampFieldChainAsString) {
+  private List<Integer> getTimestampFieldChain(Schema schema, String timestampFieldChainAsString) {
     if (Strings.isNullOrEmpty(timestampFieldChainAsString)) {
       return Collections.emptyList();
     }
 
     List<String> fieldNames = Splitter.on(".").splitToList(timestampFieldChainAsString);
     final int size = fieldNames.size();  // size >= 1 due to the Strings.isNullOrEmpty() check ahead
+    List<Integer> positionChain = new ArrayList<>(size);
     Type type = null;
+
     for (int i = 0; i <= size - 1; i++) {  // each field in the chain
       String fieldName = fieldNames.get(i).trim();
 
-      if (i == 0) {  // first level
+      if (i == 0) {  // first level, get from schema
+        positionChain.add(getPosition(schema.columns(), fieldName));
         type = schema.findType(fieldName);
-      } else {  // other levels including leaf
+      } else {  // other levels including leaf, get from its parent
+        positionChain.add(getPosition(type.asNestedType().fields(), fieldName));
         type = type.asNestedType().fieldType(fieldName);
       }
 
@@ -63,8 +68,8 @@ public class WatermarkTimeExtractor {
         throw new IllegalArgumentException(
             String.format("Can't find field %s in schema", fieldName));
       } else {
-        if (i == size - 1) {  // leaf node should be timestamp type
-          if (type.typeId() != Type.TypeID.TIME) {   // TODO: to use TimestampType ？
+        if (i == size - 1) {  // leaf node should be LONG type
+          if (type.typeId() != Type.TypeID.LONG) {
             throw new IllegalArgumentException(
                 String.format("leaf timestamp field %s is not a timestamp type, but %s", fieldName, type.typeId()));
           }
@@ -78,34 +83,56 @@ public class WatermarkTimeExtractor {
     }  // each field in the chain
 
     LOG.info("Found matched timestamp field identified by {} in the schema", timestampFieldChainAsString);
-    return fieldNames;
+    return positionChain;
+  }
+
+  private int getPosition(final List<Types.NestedField> fields, final String fieldName) {
+    if (Strings.isNullOrEmpty(fieldName)) {
+      throw new IllegalArgumentException("field name in the chain must not be null or empty");
+    }
+
+    int position = 0;
+    for (Types.NestedField field : fields) {
+      if (fieldName.equals(field.name())) {
+        return position;
+      } else {
+        position++;
+      }
+    }
+
+    return -1;  // error condition: target field name not found
   }
 
   /**
-   * @return null if timestamp field not found in the record
+   * Extract the user provided watermark timestamp value (as long) from each input.
+   *
+   * @param row the input row to extract from.
+   * @return return watermark timestamp value if the named field could be found.
+   *         otherwise, return null.
    */
-  public Long getWatermarkTimeMs(final Record record) {
+  public Long getWatermarkTimeMs(final Row row) {
     if (timestampFieldChain.isEmpty()) {
       return null;
     }
 
-    Record recordAlongPath = record;
+    Row rowAlongPath = row;
+
+    final int size = timestampFieldChain.size();
 
     // from top to the parent of leaf
-    for (int i = 0; i <= timestampFieldChain.size() - 2; i++) {
-      recordAlongPath = (Record) recordAlongPath.getField(timestampFieldChain.get(i));
+    for (int i = 0; i <= size - 2; i++) {
+      rowAlongPath = (Row) rowAlongPath.getField(timestampFieldChain.get(i));
     }
 
     // leaf
-    LocalTime ts = (LocalTime) recordAlongPath.getField(timestampFieldChain.get(timestampFieldChain.size() - 1));
+    Long ts = (Long) rowAlongPath.getField(timestampFieldChain.get(size - 1));
     if (ts == null) {
       return null;
     } else {
-      long tsInMills = ts.toNanoOfDay() / 1000;
       if (timestampUnit != TimeUnit.MILLISECONDS) {
-        return timestampUnit.toMillis(tsInMills);
+        return timestampUnit.toMillis(ts);
       } else {
-        return tsInMills;
+        return ts;
       }
     }
   }

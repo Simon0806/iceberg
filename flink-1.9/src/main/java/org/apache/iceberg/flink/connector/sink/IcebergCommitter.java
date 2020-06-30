@@ -125,9 +125,21 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
     namespace = config.getString(IcebergConnectorConstant.NAMESPACE, "");
     tableName = config.getString(IcebergConnectorConstant.TABLE, "");
 
+    // When watermark timestamp field inputted is
+    // (1) A field name (i.e. neither null nor an empty string), watermarkEnabled = true.
+    //     The logic extracts the named field.
+    // (2) Null or an empty string, watermarkEnabled = false (i.e. disabled).
+    //     The related logic does not get executed.
+    // See WatermarkTimeExtractor for details.
     watermarkEnabled = !Strings.isNullOrEmpty(
         config.getString(IcebergConnectorConstant.WATERMARK_TIMESTAMP_FIELD, ""));
+    // Watermark timestamp function is not fully tested, so disable it for now.
+    // When watermarkEnabled is true (i.e. a field name is specified), throw an exception to exit.
+    if (watermarkEnabled) {
+      throw new IllegalArgumentException("Watermark timestamp function is disabled");
+    }
     watermarkPropKey = WATERMARK_PROP_KEY_PREFIX;
+
     snapshotRetentionHours = config.getLong(IcebergConnectorConstant.SNAPSHOT_RETENTION_HOURS,
         IcebergConnectorConstant.DEFAULT_SNAPSHOT_RETENTION_HOURS);
     commitRestoredManifestFiles = config.getBoolean(IcebergConnectorConstant.COMMIT_RESTORED_MANIFEST_FILES,
