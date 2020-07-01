@@ -19,6 +19,9 @@
 
 Tencent changes:
 
+0.8.0-2-tencent - Unreleased
+  Use Flink Row instead of Iceberg Record as sink input [seanxiangli]
+
 0.8.0-1-tencent
   Update release process to include flink, flink-runtime and change list [seanxiangli]
   Flink Iceberg sink (based on open source PR #856) [seanxiangli]
