@@ -32,9 +32,11 @@ import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.runtime.state.StateInitializationContext;
 import org.apache.flink.streaming.api.operators.AbstractStreamOperator;
+import org.apache.flink.streaming.api.operators.BoundedOneInput;
 import org.apache.flink.streaming.api.operators.ChainingStrategy;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
+import org.apache.flink.streaming.runtime.tasks.ProcessingTimeCallback;
 import org.apache.flink.streaming.runtime.tasks.ProcessingTimeService;
 import org.apache.flink.types.Row;
 import org.apache.hadoop.fs.Path;
@@ -61,7 +63,8 @@ import static org.apache.iceberg.TableProperties.DEFAULT_FILE_FORMAT_DEFAULT;
 
 @SuppressWarnings("checkstyle:ClassTypeParameterName")
 public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
-    implements OneInputStreamOperator<IN, FlinkDataFile> {
+    implements OneInputStreamOperator<IN, FlinkDataFile>, BoundedOneInput,
+    ProcessingTimeCallback {
 
   private static final Logger LOG = LoggerFactory.getLogger(IcebergWriter.class);
 
@@ -70,11 +73,12 @@ public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
   private final String tableName;
   private final FileFormat format;
   private final boolean skipIncompatibleRecord;
+  private final long flushCommitInterval;
   private final Schema schema;
   private final PartitionSpec spec;
   private final LocationProvider locations;
   private final FileIO io;
-  private final Map<String, String> properties;
+  private final Map<String, String> tableProps;
   private final String timestampField;
   private final TimeUnit timestampUnit;
   private final long maxFileSize;
@@ -85,37 +89,43 @@ public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
   private transient ProcessingTimeService timerService;
   private transient Partitioner<Row> partitioner;
 
+  private transient ProcessingTimeService processingTimeService;
+  private transient boolean isCheckpointEnabled;
+
   public IcebergWriter(Table table, @Nullable RecordSerializer<IN> serializer, Configuration config) {
     this.serializer = serializer;
-    skipIncompatibleRecord = config.getBoolean(IcebergConnectorConstant.SKIP_INCOMPATIBLE_RECORD,
+    this.skipIncompatibleRecord = config.getBoolean(IcebergConnectorConstant.SKIP_INCOMPATIBLE_RECORD,
         IcebergConnectorConstant.DEFAULT_SKIP_INCOMPATIBLE_RECORD);
 
     // When timestampField inputted is
     // (1) A field name (i.e. neither null nor an empty string), the logic extracts the named field.
     // (2) Null or an empty string, the related logic does not get executed (i.e. disabled).
     // See WatermarkTimeExtractor for details.
-    timestampField = config.getString(IcebergConnectorConstant.WATERMARK_TIMESTAMP_FIELD, "");
+    this.timestampField = config.getString(IcebergConnectorConstant.WATERMARK_TIMESTAMP_FIELD, "");
     // Watermark timestamp function is not fully tested, so disable it for now.
     // When timestampField is a field name (i.e. neither null nor an empty string), throw an exception to exit.
-    if (!(timestampField == null || "".equals(timestampField))) {
+    if (!(this.timestampField == null || "".equals(this.timestampField))) {
       throw new IllegalArgumentException("Watermark timestamp function is disabled");
     }
-    timestampUnit = TimeUnit.valueOf(config.getString(IcebergConnectorConstant.WATERMARK_TIMESTAMP_UNIT,
+    this.timestampUnit = TimeUnit.valueOf(config.getString(IcebergConnectorConstant.WATERMARK_TIMESTAMP_UNIT,
         IcebergConnectorConstant.DEFAULT_WATERMARK_TIMESTAMP_UNIT));
 
-    maxFileSize = config.getLong(IcebergConnectorConstant.MAX_FILE_SIZE,
+    this.maxFileSize = config.getLong(IcebergConnectorConstant.MAX_FILE_SIZE,
         IcebergConnectorConstant.DEFAULT_MAX_FILE_SIZE);
 
-    namespace = config.getString(IcebergConnectorConstant.NAMESPACE, "");
-    tableName = config.getString(IcebergConnectorConstant.TABLE, "");
+    this.namespace = config.getString(IcebergConnectorConstant.NAMESPACE, "");
+    this.tableName = config.getString(IcebergConnectorConstant.TABLE, "");
 
-    schema = table.schema();
-    spec = table.spec();
-    locations = table.locationProvider();
-    io = table.io();
-    properties = table.properties();
-    format = FileFormat.valueOf(
-        properties.getOrDefault(DEFAULT_FILE_FORMAT, DEFAULT_FILE_FORMAT_DEFAULT).toUpperCase(Locale.ENGLISH));
+    this.schema = table.schema();
+    this.spec = table.spec();
+    this.locations = table.locationProvider();
+    this.io = table.io();
+    this.tableProps = table.properties();
+    this.format = FileFormat.valueOf(
+        tableProps.getOrDefault(DEFAULT_FILE_FORMAT, DEFAULT_FILE_FORMAT_DEFAULT).toUpperCase(Locale.ENGLISH));
+
+    this.flushCommitInterval = config.getLong(IcebergConnectorConstant.FLUSH_COMMIT_INTERVAL,
+        IcebergConnectorConstant.DEFAULT_FLUSH_COMMIT_INTERVAL);
 
     LOG.info("Iceberg writer {}.{} data file location: {}",
         namespace, tableName, locations.newDataLocation(""));
@@ -132,10 +142,17 @@ public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
   public void open() throws Exception {
     super.open();
 
-    hadoopConf = new org.apache.hadoop.conf.Configuration();
-    subtaskId = getRuntimeContext().getIndexOfThisSubtask();
-    timerService = getProcessingTimeService();
-    openPartitionFiles = new HashMap<>();
+    this.openPartitionFiles = new HashMap<>();
+    this.hadoopConf = new org.apache.hadoop.conf.Configuration();
+    this.subtaskId = getRuntimeContext().getIndexOfThisSubtask();
+    this.timerService = getProcessingTimeService();
+    this.processingTimeService = getRuntimeContext().getProcessingTimeService();
+    this.isCheckpointEnabled = getRuntimeContext().isCheckpointingEnabled();
+    final long currentTimestamp = processingTimeService.getCurrentProcessingTime();
+    // If we don't enable checkpoint, we will use timeservice to do commit,
+    if (!isCheckpointEnabled) {
+      processingTimeService.registerTimer(currentTimestamp + flushCommitInterval, this);
+    }
   }
 
   @Override
@@ -190,10 +207,9 @@ public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
   @Override
   public void close() throws Exception {
     super.close();
-
     LOG.info("Iceberg writer {}.{} subtask {} begin close", namespace, tableName, subtaskId);
-    // close all open files without emitting to downstream committer
     flush(false);
+    processingTimeService.shutdownAndAwaitPending(flushCommitInterval, TimeUnit.MILLISECONDS);
     LOG.info("Iceberg writer {}.{} subtask {} completed close", namespace, tableName, subtaskId);
   }
 
@@ -207,40 +223,46 @@ public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
   }
 
   private void abort() {
-    LOG.info("Iceberg writer {}.{} subtask {} has {} open files to abort",
-        namespace, tableName, subtaskId, openPartitionFiles.size());
-    // close all open files without sending DataFile list to downstream committer operator.
-    // because there are not checkpointed,
-    // we don't want to commit these files.
-    for (Map.Entry<String, FileWriter> entry : openPartitionFiles.entrySet()) {
-      final FileWriter writer = entry.getValue();
-      final Path path = writer.getPath();
-      try {
-        LOG.debug("Iceberg writer {}.{} subtask {} start to abort file: {}",
-            namespace, tableName, subtaskId, path);
-        writer.abort();
-        LOG.info("Iceberg writer {}.{} subtask {} completed aborting file: {}",
-            namespace, tableName, subtaskId, path);
-      } catch (Throwable t) {
-        LOG.error("Iceberg writer {}.{} subtask {} failed to abort open file: {}. Throwable = {}",
-            namespace, tableName, subtaskId, path.toString(), t);
-        continue;
-      }
+    if (openPartitionFiles != null) {
+      LOG.info("Iceberg writer {}.{} subtask {} has {} open files to abort",
+          namespace, tableName, subtaskId, openPartitionFiles.size());
+      // close all open files without sending DataFile list to downstream committer operator.
+      // because there are not checkpointed,
+      // we don't want to commit these files.
+      for (Map.Entry<String, FileWriter> entry : openPartitionFiles
+          .entrySet()) {
+        final FileWriter writer = entry.getValue();
+        final Path path = writer.getPath();
+        try {
+          LOG.debug("Iceberg writer {}.{} subtask {} start to abort file: {}",
+              namespace, tableName, subtaskId, path);
+          writer.abort();
+          LOG.info(
+              "Iceberg writer {}.{} subtask {} completed aborting file: {}",
+              namespace, tableName, subtaskId, path);
+        } catch (Throwable t) {
+          LOG.error(
+              "Iceberg writer {}.{} subtask {} failed to abort open file: {}. Throwable = {}",
+              namespace, tableName, subtaskId, path.toString(), t);
+          continue;
+        }
 
-      try {
-        LOG.debug("Iceberg writer {}.{} subtask {} deleting aborted file: {}",
-            namespace, tableName, subtaskId, path);
-        io.deleteFile(path.toString());
-        LOG.info("Iceberg writer {}.{} subtask {} deleted aborted file: {}",
-            namespace, tableName, subtaskId, path);
-      } catch (Throwable t) {
-        LOG.error("Iceberg writer {}.{} subtask {} failed to delete aborted file: {}. Throwable = {}",
-            namespace, tableName, subtaskId, path.toString(), t);
+        try {
+          LOG.debug("Iceberg writer {}.{} subtask {} deleting aborted file: {}",
+              namespace, tableName, subtaskId, path);
+          io.deleteFile(path.toString());
+          LOG.info("Iceberg writer {}.{} subtask {} deleted aborted file: {}",
+              namespace, tableName, subtaskId, path);
+        } catch (Throwable t) {
+          LOG.error(
+              "Iceberg writer {}.{} subtask {} failed to delete aborted file: {}. Throwable = {}",
+              namespace, tableName, subtaskId, path.toString(), t);
+        }
       }
+      LOG.info("Iceberg writer {}.{} subtask {} aborted {} open files",
+          namespace, tableName, subtaskId, openPartitionFiles.size());
+      openPartitionFiles.clear();
     }
-    LOG.info("Iceberg writer {}.{} subtask {} aborted {} open files",
-        namespace, tableName, subtaskId, openPartitionFiles.size());
-    openPartitionFiles.clear();
   }
 
   @Override
@@ -316,13 +338,13 @@ public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
 
 
   private FileAppender<Row> newAppender(OutputFile file) throws Exception {
-    MetricsConfig metricsConfig = MetricsConfig.fromProperties(properties);
+    MetricsConfig metricsConfig = MetricsConfig.fromProperties(tableProps);
     try {
       switch (format) {
         case PARQUET:
           return Parquet.write(file)
               .createWriterFunc(FlinkParquetWriters::buildRowWriter)
-              .setAll(properties)
+              .setAll(tableProps)
               .metricsConfig(metricsConfig)
               .schema(schema)
               .overwrite()
@@ -331,7 +353,7 @@ public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
         case AVRO:
           return Avro.write(file)
               .createWriterFunc(DataWriter::create)
-              .setAll(properties)
+              .setAll(tableProps)
               .schema(schema)
               .overwrite()
               .build();
@@ -342,5 +364,19 @@ public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
     } catch (IOException e) {
       throw new RuntimeIOException(e);
     }
+  }
+
+  @Override
+  public void onProcessingTime(long timestamp) throws Exception {
+    flush(true);
+    final long currentTimestamp = processingTimeService.getCurrentProcessingTime();
+    processingTimeService.registerTimer(currentTimestamp + flushCommitInterval, this);
+  }
+
+  @Override
+  public void endInput() throws Exception {
+    // For bounded source. when there is no data , will call this
+    // method to flush the final data.
+    flush(true);
   }
 }

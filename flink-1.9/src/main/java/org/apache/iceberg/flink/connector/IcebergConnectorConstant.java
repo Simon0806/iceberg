@@ -47,6 +47,9 @@ public class IcebergConnectorConstant {
   public static final String COMMIT_RESTORED_MANIFEST_FILES = "commit_restored_manifest_files";
   public static final String MAX_FILE_SIZE = "max_file_size";
 
+  public static final String FLUSH_COMMIT_INTERVAL = "flush_commit_interval";
+
+  public static final long DEFAULT_FLUSH_COMMIT_INTERVAL = 60 * 1000L;
   public static final boolean DEFAULT_SKIP_INCOMPATIBLE_RECORD = false;
 
   public static final long DEFAULT_SNAPSHOT_RETENTION_HOURS = 70;

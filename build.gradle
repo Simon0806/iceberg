@@ -301,6 +301,8 @@ project(':iceberg-flink-1.9') {
       exclude group: 'javax.transaction', module: 'transaction-api'
       exclude group: 'com.zaxxer', module: 'HikariCP'
     }
+    testCompile("org.apache.flink:flink-test-utils_2.11")
+    testCompile("org.apache.flink:flink-avro:1.9-tq-0.1.1")
   }
 }
 

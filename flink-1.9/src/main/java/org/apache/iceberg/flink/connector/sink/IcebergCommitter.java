@@ -40,10 +40,14 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.runtime.state.CheckpointListener;
 import org.apache.flink.runtime.state.FunctionInitializationContext;
 import org.apache.flink.runtime.state.FunctionSnapshotContext;
+import org.apache.flink.runtime.state.StateSnapshotContextSynchronousImpl;
 import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
 import org.apache.flink.streaming.api.environment.CheckpointConfig;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
+import org.apache.flink.streaming.api.operators.StreamingRuntimeContext;
+import org.apache.flink.streaming.runtime.tasks.ProcessingTimeCallback;
+import org.apache.flink.streaming.runtime.tasks.ProcessingTimeService;
 import org.apache.flink.util.Preconditions;
 import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
 import org.apache.iceberg.AppendFiles;
@@ -85,13 +89,14 @@ import org.slf4j.LoggerFactory;
  */
 @SuppressWarnings("checkstyle:HiddenField")
 public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
-    implements CheckpointedFunction, CheckpointListener {
+    implements CheckpointedFunction, CheckpointListener, ProcessingTimeCallback {
   private static final Logger LOG = LoggerFactory.getLogger(IcebergCommitter.class);
 
   private static final String COMMIT_MANIFEST_HASHES_KEY = "flink.commit.manifest.hashes";
   private static final String WATERMARK_PROP_KEY_PREFIX = "flink.watermark";
 
   private Configuration config;
+  private boolean isCheckpointEnabled;
   private final String namespace;
   private final String tableName;
 
@@ -103,6 +108,7 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
   private final PartitionSpec spec;
   private final FileIO io;
   private final String flinkJobId;
+  private final long flushCommitInterval;
 
   private transient Table table;
   private transient List<FlinkDataFile> pendingDataFiles;
@@ -110,6 +116,8 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
   private transient ListState<ManifestFileState> manifestFileState;
   private transient CommitMetadata metadata;
   private transient ListState<CommitMetadata> commitMetadataState;
+
+  private transient ProcessingTimeService processingTimeService;
 
   public IcebergCommitter(Table table, Configuration config) {
     this.config = config;
@@ -145,6 +153,9 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
     commitRestoredManifestFiles = config.getBoolean(IcebergConnectorConstant.COMMIT_RESTORED_MANIFEST_FILES,
         IcebergConnectorConstant.DEFAULT_COMMIT_RESTORED_MANIFEST_FILES);
     icebergManifestFileDir = getIcebergManifestFileDir(config);
+
+    flushCommitInterval = config.getLong(IcebergConnectorConstant.FLUSH_COMMIT_INTERVAL,
+        IcebergConnectorConstant.DEFAULT_FLUSH_COMMIT_INTERVAL);
 
     // The only final fields yielded by table inputted
     spec = table.spec();
@@ -189,8 +200,29 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
   }
 
   @Override
+  public void open(Configuration parameters) throws Exception {
+    super.open(parameters);
+    this.isCheckpointEnabled = ((StreamingRuntimeContext) getRuntimeContext()).isCheckpointingEnabled();
+    this.processingTimeService = ((StreamingRuntimeContext) getRuntimeContext()).getProcessingTimeService();
+    final long currentTimestamp = processingTimeService.getCurrentProcessingTime();
+    // If we don't enable checkpoint, we will use timeservice to do commit,
+    if (!isCheckpointEnabled) {
+      processingTimeService.registerTimer(currentTimestamp +
+          flushCommitInterval, this);
+    }
+  }
+
+  @Override
   public void close() throws Exception {
     super.close();
+    if (processingTimeService != null && processingTimeService.isTerminated()) {
+      processingTimeService.shutdownAndAwaitPending(flushCommitInterval, TimeUnit.MICROSECONDS);
+    }
+    LOG.info("Successfully close processing time service and do final commit.");
+    // When checkpoint enable, let checkpoint to do commit.
+    flinkManifestFiles.add(createManifestFile(pendingDataFiles));
+    pendingDataFiles.clear();
+    commit();
   }
 
   void init() {
@@ -300,7 +332,6 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
             "metadata = {}, flink manifest files ({}) = {}", namespace, tableName,
         CommitMetadataUtil.encodeAsJson(metadata),
         flinkManifestFiles.size(), flinkManifestFiles);
-    postCommitSuccess();
   }
 
   private List<FlinkManifestFile> removeCommittedManifests(List<FlinkManifestFile> flinkManifestFiles) {
@@ -369,15 +400,29 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
     metadata = updateMetadata(metadata, context, flinkManifestFile);
   }
 
+  // For non-checkpoint case.
+  private FlinkManifestFile createManifestFile(List<FlinkDataFile> pendingDataFiles)
+      throws Exception {
+    // Generate a default context in non-checkpoint mode.
+    return createManifestFile(new StateSnapshotContextSynchronousImpl(0L,
+            processingTimeService.getCurrentProcessingTime()), pendingDataFiles);
+  }
+
+  /* TODO we should use a unify datafile to track pending files.
+  *   we should optimize logical to make commit out of checkpoint logica.
+  *  */
+  // For checkpoint case.
   private FlinkManifestFile createManifestFile(
       FunctionSnapshotContext context, List<FlinkDataFile> pendingDataFiles) throws Exception {
     LOG.info("Iceberg committer {}.{} checkpointing {} pending data files}",
         namespace, tableName, pendingDataFiles.size());
     String result = "succeeded";
     final long start = System.currentTimeMillis();
+    long id = context.getCheckpointId();
+    long timestamp = context.getCheckpointTimestamp();
     try {
       final String manifestFileName = Joiner.on("_")
-          .join(flinkJobId, context.getCheckpointId(), context.getCheckpointTimestamp());
+          .join(flinkJobId, id, timestamp);
       // Iceberg requires file format suffix right now
       final String manifestFileNameWithSuffix = manifestFileName + ".avro";
       OutputFile outputFile = io.newOutputFile(icebergManifestFileDir + manifestFileNameWithSuffix);
@@ -409,8 +454,8 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
           .setPath(manifestFile.path())
           .setLength(manifestFile.length())
           .setSpecId(manifestFile.partitionSpecId())
-          .setCheckpointId(context.getCheckpointId())
-          .setCheckpointTimestamp(context.getCheckpointTimestamp())
+          .setCheckpointId(id)
+          .setCheckpointTimestamp(timestamp)
           .setDataFileCount(pendingDataFiles.size())
           .setRecordCount(recordCount)
           .setByteCount(byteCount)
@@ -520,13 +565,13 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
       if (checkpointId == metadata.getLastCheckpointId()) {
         try {
           commit();
-          postCommitSuccess();
         } catch (Exception t) {
           // swallow the exception to avoid job restart in case of commit failure
           //LOG.error(String.format("Iceberg committer %s.%s failed to do post checkpoint commit", database, tableName),
           //          t);
           LOG.error("Iceberg committer {}.{} failed to do post checkpoint commit. Throwable = ",
               namespace, tableName, t);
+          throw t;
         }
       } else {
         // TODO: it would be nice to fix this and allow concurrent checkpoint
@@ -563,6 +608,27 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
                "as there are no uncommitted data files and watermark is disabled",
                namespace, tableName);
     }
+
+    LOG.info("Iceberg committer {}.{} update metrics and metadata post commit success", namespace, tableName);
+    LOG.debug("Committed manifest file count {}, containing data file count {}, record count {} and byte count {}",
+        flinkManifestFiles.size(),
+        FlinkManifestFileUtil.getDataFileCount(flinkManifestFiles),
+        FlinkManifestFileUtil.getRecordCount(flinkManifestFiles),
+        FlinkManifestFileUtil.getByteCount(flinkManifestFiles));
+    final Long lowWatermark = FlinkManifestFileUtil.getLowWatermark(flinkManifestFiles);
+    if (null != lowWatermark) {
+      LOG.debug("Low watermark as {}", lowWatermark);
+    }
+    final Long highWatermark = FlinkManifestFileUtil.getHighWatermark(flinkManifestFiles);
+    if (null != highWatermark) {
+      LOG.debug("High watermark as {}", highWatermark);
+    }
+    if (metadata.getWatermark() != null) {
+      LOG.debug("Watermark as {}", metadata.getWatermark());
+    }
+    final long lastCommitTimestamp = System.currentTimeMillis();
+    metadata.setLastCommitTimestamp(lastCommitTimestamp);
+    flinkManifestFiles.clear();
   }
 
   private Transaction prepareTransaction(List<FlinkManifestFile> flinkManifestFiles, CommitMetadata metadata) {
@@ -609,29 +675,6 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
     }
   }
 
-  private void postCommitSuccess() {
-    LOG.info("Iceberg committer {}.{} update metrics and metadata post commit success", namespace, tableName);
-    LOG.debug("Committed manifest file count {}, containing data file count {}, record count {} and byte count {}",
-        flinkManifestFiles.size(),
-        FlinkManifestFileUtil.getDataFileCount(flinkManifestFiles),
-        FlinkManifestFileUtil.getRecordCount(flinkManifestFiles),
-        FlinkManifestFileUtil.getByteCount(flinkManifestFiles));
-    final Long lowWatermark = FlinkManifestFileUtil.getLowWatermark(flinkManifestFiles);
-    if (null != lowWatermark) {
-      LOG.debug("Low watermark as {}", lowWatermark);
-    }
-    final Long highWatermark = FlinkManifestFileUtil.getHighWatermark(flinkManifestFiles);
-    if (null != highWatermark) {
-      LOG.debug("High watermark as {}", highWatermark);
-    }
-    if (metadata.getWatermark() != null) {
-      LOG.debug("Watermark as {}", metadata.getWatermark());
-    }
-    final long lastCommitTimestamp = System.currentTimeMillis();
-    metadata.setLastCommitTimestamp(lastCommitTimestamp);
-    flinkManifestFiles.clear();
-  }
-
   @Override
   public void invoke(FlinkDataFile value, Context context) throws Exception {
     pendingDataFiles.add(value);
@@ -640,6 +683,25 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
         value.getIcebergDataFile().fileSizeInBytes());
     LOG.debug("Iceberg committer {}.{} has total pending files {} after receiving new data file: {}",
         namespace, tableName, pendingDataFiles.size(), value.toCompactDump());
+  }
+
+  @Override
+  public void onProcessingTime(long timestamp) throws Exception {
+    if (!pendingDataFiles.isEmpty()) {
+      FlinkManifestFile flinkManifestFile = createManifestFile(pendingDataFiles);
+      flinkManifestFiles.add(flinkManifestFile);
+      pendingDataFiles.clear();
+    }
+    try {
+      commit();
+      final long currentTimestamp = processingTimeService.getCurrentProcessingTime();
+      processingTimeService.registerTimer(currentTimestamp +
+          flushCommitInterval, this);
+    } catch (Exception t) {
+      LOG.error("Iceberg committer {}.{} failed to do post checkpoint commit. Throwable = ",
+          namespace, tableName, t);
+      throw t;
+    }
   }
 
 }
