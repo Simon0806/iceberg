@@ -23,7 +23,6 @@ import java.io.File;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
-import org.apache.flink.configuration.CheckpointingOptions;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.source.ParallelSourceFunction;
@@ -102,11 +101,9 @@ public class TestFlinkIcebergSink extends AbstractTestBase {
     Assert.assertNotNull(table);
 
     org.apache.flink.configuration.Configuration flinkConf = new org.apache.flink.configuration.Configuration();
-    flinkConf.setString(CheckpointingOptions.CHECKPOINTS_DIRECTORY, tableLocation);
-    flinkConf.setString(IcebergConnectorConstant.NAMESPACE, NAMESPACE);
-    flinkConf.setString(IcebergConnectorConstant.TABLE, TABLE);
-    flinkConf.setString(IcebergConnectorConstant.CATALOG_TYPE, "HADOOP");
-    flinkConf.setString(IcebergConnectorConstant.HADOOP_CATALOG_WAREHOUSE_LOCATION, tableLocation);
+    flinkConf.setString(IcebergConnectorConstant.IDENTIFIER, NAMESPACE + "." + TABLE);
+    flinkConf.setString(IcebergConnectorConstant.CATALOG_TYPE, IcebergConnectorConstant.HADOOP_CATALOG);
+    flinkConf.setString(IcebergConnectorConstant.WAREHOUSE_LOCATION, tableLocation);
     flinkConf.setLong(IcebergConnectorConstant.FLUSH_COMMIT_INTERVAL, 60 * 1000L);
 
     IcebergSinkAppender appender = new IcebergSinkAppender(table, flinkConf,

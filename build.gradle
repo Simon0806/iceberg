@@ -56,7 +56,7 @@ allprojects {
   group = "org.apache.iceberg"
   version = getProjectVersion()
   repositories {
-    maven { url "http://mirrors.tencent.com/repository/maven/tianqiong-releases" }  // Tencent's Flink 1.9-tq-0.1.0
+    maven { url "http://mirrors.tencent.com/repository/maven/tianqiong-releases" }  // Tencent's Flink 1.9-tq-?
     maven { url "http://palantir.bintray.com/releases" }
     mavenCentral()
     mavenLocal()
@@ -273,15 +273,16 @@ project(':iceberg-flink-1.9') {
     compile project(':iceberg-data')
     compile project(':iceberg-hive')
     compile project(':iceberg-parquet')
-    compileOnly("org.apache.flink:flink-streaming-java_2.11") {
+    compileOnly("org.apache.flink:flink-table-api-java-bridge_2.11") {
       exclude group: 'com.esotericsoftware.kryo', module: 'kryo'
+      exclude group: 'com.esotericsoftware.minlog', module: 'minlog'
       exclude group: 'com.github.scopt', module: 'scopt_2.11'
       exclude group: 'com.typesafe'
       exclude group: 'com.typesafe.akka'
       exclude group: 'org.clapper', module: 'grizzled-slf4j_2.11'
       exclude group: 'org.reactivestreams', module: 'reactive-streams'
+      exclude group: 'org.scala-lang.modules', module: 'scala-java8-compat_2.11'
     }
-    compileOnly("org.apache.flink:flink-connector-filesystem_2.11")
     compileOnly("org.apache.hadoop:hadoop-client") {
       exclude group: 'org.apache.avro', module: 'avro'
       exclude group: 'org.slf4j', module: 'slf4j-log4j12'
@@ -301,8 +302,37 @@ project(':iceberg-flink-1.9') {
       exclude group: 'javax.transaction', module: 'transaction-api'
       exclude group: 'com.zaxxer', module: 'HikariCP'
     }
-    testCompile("org.apache.flink:flink-test-utils_2.11")
-    testCompile("org.apache.flink:flink-avro:1.9-tq-0.1.1")
+
+    testCompile project(path: ':iceberg-hive', configuration: 'testArtifacts')
+
+    // A planner module must be on the classpath
+    testCompile "org.apache.flink:flink-table-planner-blink_2.11"
+    testCompile "org.apache.flink:flink-table-planner_2.11"
+
+    testCompile "org.apache.flink:flink-avro:1.9-tq-0.1.1"
+    testCompile("org.apache.flink:flink-test-utils_2.11") {
+      exclude group: "org.apache.curator", module: 'curator-test'
+    }
+
+    // The following dependency is to address the following runtime exception when calling TestHiveMetastore.start()
+    //   java.lang.RuntimeException: Error loading PartitionExpressionProxy:
+    //   org.apache.hadoop.hive.ql.optimizer.ppr.PartitionExpressionForMetastore class not found
+    //
+    // By default, hive-exec is a fat/uber jar and it exports a guava library
+    // that's really old. We use the core classifier to be able to override our guava
+    // version. Luckily, hive-exec seems to work okay so far with this version of guava
+    // See: https://github.com/apache/hive/blob/master/ql/pom.xml#L911 for more context.
+    testCompile("org.apache.hive:hive-exec::core") {
+      exclude group: 'org.apache.avro', module: 'avro'
+      exclude group: 'org.slf4j', module: 'slf4j-log4j12'
+      exclude group: 'org.pentaho' // missing dependency
+      exclude group: 'org.apache.hive', module: 'hive-llap-tez'
+      exclude group: 'org.apache.logging.log4j'
+      exclude group: 'com.google.protobuf', module: 'protobuf-java'
+      exclude group: 'org.apache.calcite'
+      exclude group: 'org.apache.calcite.avatica'
+      exclude group: 'com.google.code.findbugs', module: 'jsr305'
+    }
   }
 }
 

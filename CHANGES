@@ -20,6 +20,7 @@
 Tencent changes:
 
 0.8.0-2-tencent - Unreleased
+  Adapt Flink table sink and sink factory [seanxiangli]
   Use Flink Row instead of Iceberg Record as sink input [seanxiangli]
   Add ProcessingTimeCallback to handle data sink in non-checkpoint mode [simonssu]
 

@@ -27,7 +27,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-import javax.annotation.Nullable;
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.runtime.state.StateInitializationContext;
@@ -69,8 +68,7 @@ public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
   private static final Logger LOG = LoggerFactory.getLogger(IcebergWriter.class);
 
   private final RecordSerializer<IN> serializer;
-  private final String namespace;
-  private final String tableName;
+  private final String identifier;
   private final FileFormat format;
   private final boolean skipIncompatibleRecord;
   private final long flushCommitInterval;
@@ -92,10 +90,8 @@ public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
   private transient ProcessingTimeService processingTimeService;
   private transient boolean isCheckpointEnabled;
 
-  public IcebergWriter(Table table, @Nullable RecordSerializer<IN> serializer, Configuration config) {
+  public IcebergWriter(Table table, RecordSerializer<IN> serializer, Configuration config) {
     this.serializer = serializer;
-    this.skipIncompatibleRecord = config.getBoolean(IcebergConnectorConstant.SKIP_INCOMPATIBLE_RECORD,
-        IcebergConnectorConstant.DEFAULT_SKIP_INCOMPATIBLE_RECORD);
 
     // When timestampField inputted is
     // (1) A field name (i.e. neither null nor an empty string), the logic extracts the named field.
@@ -112,9 +108,13 @@ public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
 
     this.maxFileSize = config.getLong(IcebergConnectorConstant.MAX_FILE_SIZE,
         IcebergConnectorConstant.DEFAULT_MAX_FILE_SIZE);
+    LOG.info("Max data file size is set to {}", this.maxFileSize);
 
-    this.namespace = config.getString(IcebergConnectorConstant.NAMESPACE, "");
-    this.tableName = config.getString(IcebergConnectorConstant.TABLE, "");
+    this.skipIncompatibleRecord = config.getBoolean(IcebergConnectorConstant.SKIP_INCOMPATIBLE_RECORD,
+        IcebergConnectorConstant.DEFAULT_SKIP_INCOMPATIBLE_RECORD);
+    LOG.info("Skip incompatible record is set to {}", this.skipIncompatibleRecord);
+
+    this.identifier = config.getString(IcebergConnectorConstant.IDENTIFIER, "");
 
     this.schema = table.schema();
     this.spec = table.spec();
@@ -127,11 +127,9 @@ public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
     this.flushCommitInterval = config.getLong(IcebergConnectorConstant.FLUSH_COMMIT_INTERVAL,
         IcebergConnectorConstant.DEFAULT_FLUSH_COMMIT_INTERVAL);
 
-    LOG.info("Iceberg writer {}.{} data file location: {}",
-        namespace, tableName, locations.newDataLocation(""));
-    LOG.info("Iceberg writer {}.{} created with sink config", namespace, tableName);
-    LOG.info("Iceberg writer {}.{} loaded table: schema = {}\npartition spec = {}",
-        namespace, tableName, schema, spec);
+    LOG.info("Iceberg writer {} data file location: {}", identifier, locations.newDataLocation(""));
+    LOG.info("Iceberg writer {} created with sink config", identifier);
+    LOG.info("Iceberg writer {} loaded table: schema = {}\npartition spec = {}", identifier, schema, spec);
 
     // default ChainingStrategy is set to HEAD
     // we prefer chaining to avoid the huge serialization and deserializatoin overhead.
@@ -157,12 +155,10 @@ public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
 
   @Override
   public void prepareSnapshotPreBarrier(long checkpointId) throws Exception {
-    LOG.info("Iceberg writer {}.{} subtask {} begin preparing for checkpoint {}",
-        namespace, tableName, subtaskId, checkpointId);
+    LOG.info("Iceberg writer {} subtask {} begin preparing for checkpoint {}", identifier, subtaskId, checkpointId);
     // close all open files and emit files to downstream committer operator
     flush(true);
-    LOG.info("Iceberg writer {}.{} subtask {} completed preparing for checkpoint {}",
-        namespace, tableName, subtaskId, checkpointId);
+    LOG.info("Iceberg writer {} subtask {} completed preparing for checkpoint {}", identifier, subtaskId, checkpointId);
   }
 
   @Override
@@ -181,8 +177,7 @@ public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
         emit(flinkDataFile);
       }
     }
-    LOG.info("Iceberg writer {}.{} subtask {} flushed {} open files",
-        namespace, tableName, subtaskId, openPartitionFiles.size());
+    LOG.info("Iceberg writer {} subtask {} flushed {} open files", identifier, subtaskId, openPartitionFiles.size());
     openPartitionFiles.clear();
     return dataFiles;
   }
@@ -190,77 +185,71 @@ public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
   FlinkDataFile closeWriter(FileWriter writer) throws IOException {
     FlinkDataFile flinkDataFile = writer.close();
     LOG.info(
-        "Iceberg writer {}.{} subtask {} uploaded to Iceberg table {}.{} with {} records and {} bytes on this path: {}",
-        namespace, tableName, subtaskId, namespace, tableName, flinkDataFile.getIcebergDataFile().recordCount(),
+        "Iceberg writer {} subtask {} data file closed with {} records and {} bytes on this path: {}",
+        identifier, subtaskId, flinkDataFile.getIcebergDataFile().recordCount(),
         flinkDataFile.getIcebergDataFile().fileSizeInBytes(), flinkDataFile.getIcebergDataFile().path());
     return flinkDataFile;
   }
 
   void emit(FlinkDataFile flinkDataFile) {
     output.collect(new StreamRecord<>(flinkDataFile));
-    LOG.debug("Iceberg writer {}.{} subtask {} emitted uploaded file to committer for Iceberg table {}.{}" +
+    LOG.debug("Iceberg writer {} subtask {} emitted data file to committer" +
         " with {} records and {} bytes on this path: {}",
-        namespace, tableName, subtaskId, namespace, tableName, flinkDataFile.getIcebergDataFile().recordCount(),
+        identifier, subtaskId, flinkDataFile.getIcebergDataFile().recordCount(),
         flinkDataFile.getIcebergDataFile().fileSizeInBytes(), flinkDataFile.getIcebergDataFile().path());
   }
 
   @Override
   public void close() throws Exception {
     super.close();
-    LOG.info("Iceberg writer {}.{} subtask {} begin close", namespace, tableName, subtaskId);
+
+    LOG.info("Iceberg writer {} subtask {} begin close", identifier, subtaskId);
+    // close all open files without emitting to downstream committer
     flush(false);
     processingTimeService.shutdownAndAwaitPending(flushCommitInterval, TimeUnit.MILLISECONDS);
-    LOG.info("Iceberg writer {}.{} subtask {} completed close", namespace, tableName, subtaskId);
+    LOG.info("Iceberg writer {} subtask {} completed close", identifier, subtaskId);
   }
 
   @Override
   public void dispose() throws Exception {
     super.dispose();
 
-    LOG.info("Iceberg writer {}.{} subtask {} begin dispose", namespace, tableName, subtaskId);
+    LOG.info("Iceberg writer {} subtask {} begin dispose", identifier, subtaskId);
     abort();
-    LOG.info("Iceberg writer {}.{} subtask {} completed dispose", namespace, tableName, subtaskId);
+    LOG.info("Iceberg writer {} subtask {} completed dispose", identifier, subtaskId);
   }
 
   private void abort() {
     if (openPartitionFiles != null) {
-      LOG.info("Iceberg writer {}.{} subtask {} has {} open files to abort",
-          namespace, tableName, subtaskId, openPartitionFiles.size());
+      LOG.info("Iceberg writer {} subtask {} has {} open files to abort",
+          identifier, subtaskId, openPartitionFiles.size());
       // close all open files without sending DataFile list to downstream committer operator.
       // because there are not checkpointed,
       // we don't want to commit these files.
-      for (Map.Entry<String, FileWriter> entry : openPartitionFiles
-          .entrySet()) {
+      for (Map.Entry<String, FileWriter> entry : openPartitionFiles.entrySet()) {
         final FileWriter writer = entry.getValue();
         final Path path = writer.getPath();
         try {
-          LOG.debug("Iceberg writer {}.{} subtask {} start to abort file: {}",
-              namespace, tableName, subtaskId, path);
+          LOG.debug("Iceberg writer {} subtask {} start to abort file: {}", identifier, subtaskId, path);
           writer.abort();
-          LOG.info(
-              "Iceberg writer {}.{} subtask {} completed aborting file: {}",
-              namespace, tableName, subtaskId, path);
+          LOG.info("Iceberg writer {} subtask {} completed aborting file: {}", identifier, subtaskId, path);
         } catch (Throwable t) {
           LOG.error(
-              "Iceberg writer {}.{} subtask {} failed to abort open file: {}. Throwable = {}",
-              namespace, tableName, subtaskId, path.toString(), t);
+              "Iceberg writer {} subtask {} failed to abort open file: {}. Throwable = {}",
+              identifier, subtaskId, path.toString(), t);
           continue;
         }
 
         try {
-          LOG.debug("Iceberg writer {}.{} subtask {} deleting aborted file: {}",
-              namespace, tableName, subtaskId, path);
+          LOG.debug("Iceberg writer {} subtask {} deleting aborted file: {}", identifier, subtaskId, path);
           io.deleteFile(path.toString());
-          LOG.info("Iceberg writer {}.{} subtask {} deleted aborted file: {}",
-              namespace, tableName, subtaskId, path);
+          LOG.info("Iceberg writer {} subtask {} deleted aborted file: {}", identifier, subtaskId, path);
         } catch (Throwable t) {
-          LOG.error(
-              "Iceberg writer {}.{} subtask {} failed to delete aborted file: {}. Throwable = {}",
-              namespace, tableName, subtaskId, path.toString(), t);
+          LOG.error("Iceberg writer {} subtask {} failed to delete aborted file: {}. Throwable = {}",
+              identifier, subtaskId, path.toString(), t);
         }
       }
-      LOG.info("Iceberg writer {}.{} subtask {} aborted {} open files",
-          namespace, tableName, subtaskId, openPartitionFiles.size());
+      LOG.info("Iceberg writer {} subtask {} aborted {} open files", identifier, subtaskId, openPartitionFiles.size());
       openPartitionFiles.clear();
     }
   }
@@ -284,7 +273,7 @@ public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
   }
 
   /**
-   * process element as {@Flink Row}
+   * process a single {@link Row} of Flink and write it into data file by {@link FileWriter}
    */
   private void processRecord(Row record) throws Exception {
     if (partitioner == null) {
@@ -296,8 +285,7 @@ public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
       final Path path = new Path(partitionPath, generateFileName());
       FileWriter writer = newWriter(path, partitioner);
       openPartitionFiles.put(partitionPath, writer);  // TODO: 1 writer for 1 partition path?
-      LOG.info("Iceberg writer {}.{} subtask {} opened a new file: {}",
-          namespace, tableName, subtaskId, path.toString());
+      LOG.info("Iceberg writer {} subtask {} opened a new file: {}", identifier, subtaskId, path.toString());
     }
     final FileWriter writer = openPartitionFiles.get(partitionPath);
     final long fileSize = writer.write(record);
