@@ -302,6 +302,7 @@ project(':iceberg-flink-1.9') {
       exclude group: 'javax.transaction', module: 'transaction-api'
       exclude group: 'com.zaxxer', module: 'HikariCP'
     }
+    compileOnly("org.apache.flink:flink-metrics-dropwizard")
 
     testCompile project(path: ':iceberg-hive', configuration: 'testArtifacts')
 

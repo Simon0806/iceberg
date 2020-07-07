@@ -28,6 +28,7 @@ org.apache.flink:flink-table-planner_2.11 = 1.9-tq-0.1.1
 org.apache.flink:flink-runtime_2.11 = 1.9-tq-0.1.1
 org.apache.flink:flink-test-utils_2.11 = 1.9-tq-0.1.1
 org.apache.flink:flink-connector-filesystem_2.11 = 1.9-tq-0.1.1
+org.apache.flink:flink-metrics-dropwizard = 1.9-tq-0.1.1
 
 # test deps
 junit:junit = 4.12
