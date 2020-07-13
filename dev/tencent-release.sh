@@ -58,7 +58,7 @@ tarball=$tag.tar.gz
 
 # be conservative and use the release hash, even though git produces the same
 # archive (identical hashes) using the scm tag
-git archive $release_hash --prefix $tag/ -o $tarball .baseline api arrow common core data dev flink flink-1.9 flink-1.9-runtime gradle gradlew hive mr orc parquet pig project spark spark-runtime spark2 spark3 spark3-runtime CHANGES LICENSE NOTICE README.md build.gradle baseline.gradle deploy.gradle deploy-tencent.gradle tasks.gradle jmh.gradle gradle.properties settings.gradle versions.lock versions.props version.txt
+git archive $release_hash --prefix $tag/ -o $tarball .baseline api arrow bundled-guava common core data dev flink flink-1.9 flink-1.9-runtime gradle gradlew hive mr orc parquet pig spark spark2 spark-runtime spark3 spark3-runtime CHANGES LICENSE NOTICE README.md build.gradle baseline.gradle deploy.gradle deploy-tencent.gradle tasks.gradle jmh.gradle gradle.properties settings.gradle versions.lock versions.props version.txt
 
 # checksum
 sha512sum $tarball > ${tarball}.sha512

@@ -20,8 +20,10 @@
 Tencent changes:
 
 0.8.0-2-tencent - Unreleased
+  Add bundled-guava to tencent release script [seanxiangli]
   Add metrics to IcebergCommitter - addendum - package flink-metrics-dropwizard [seanxiangli]
   Add metrics to IcebergCommitter [simonssu]
+  Add flink-1.9, flink-1.9-runtime and spark2, spark3, spark3-runtime to tencent release script [seanxiangli]
   Adapt Flink table sink and sink factory [seanxiangli]
   Add ProcessingTimeCallback to handle data sink in non-checkpoint mode [simonssu]
   Use Flink Row instead of Iceberg Record as sink input [seanxiangli]
