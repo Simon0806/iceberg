@@ -32,18 +32,11 @@ import org.apache.flink.table.api.ValidationException;
 import org.apache.flink.table.sinks.TableSink;
 import org.apache.flink.table.sinks.UpsertStreamTableSink;
 import org.apache.flink.types.Row;
-import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
-import org.apache.iceberg.Table;
-import org.apache.iceberg.catalog.Catalog;
-import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.flink.connector.IcebergConnectorConstant;
 import org.apache.iceberg.flink.connector.sink.FlinkTuple2Serializer;
 import org.apache.iceberg.flink.connector.sink.IcebergSinkAppender;
-import org.apache.iceberg.hadoop.HadoopCatalog;
-import org.apache.iceberg.hadoop.HadoopTables;
-import org.apache.iceberg.hive.HiveCatalogs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -67,54 +60,10 @@ public class IcebergTableSink implements UpsertStreamTableSink<Row> {
 
   @Override
   public DataStreamSink<?> consumeDataStream(DataStream<Tuple2<Boolean, Row>> dataStream) {
-    // catalog
-    Object catalogOrHadoopTables = buildCatalog();
-    Table table = null;
-
-    if (catalogOrHadoopTables instanceof Catalog) {  // Hive or Hadoop catalog
-      Catalog catalog = (Catalog) catalogOrHadoopTables;
-
-      // table identifier
-      String identifier = config.getString(IcebergConnectorConstant.IDENTIFIER, "");
-      TableIdentifier tableIdentifier = TableIdentifier.parse(identifier);
-
-      // load or create table from catalog
-      if (catalog.tableExists(tableIdentifier)) {
-        table = catalog.loadTable(tableIdentifier);
-
-        LOG.info("Table of {} exists, so loaded from catalog", table);
-      } else {  // table not exist
-        // Disable table creation in Flink sink for now
-        throw new IllegalArgumentException(String.format("Table %s does NOT exist", identifier));
-
-        /*
-        Schema icebergSchema = FlinkSchemaUtil.convert(tableSchema);
-        PartitionSpec partitionSpec = buildPartitionSpec(icebergSchema);
-        Map<String, String> properties = new HashMap<>();
-
-        table = catalog.createTable(tableIdentifier, icebergSchema, partitionSpec, properties);
-
-        LOG.info("Table of {} created with schema = {}\npartition spec {}", table, icebergSchema, partitionSpec);
-        */
-      }
-    } else {  // HadoopTables
-      HadoopTables hadoopTables = (HadoopTables) catalogOrHadoopTables;
-
-      String location = config.getString(IcebergConnectorConstant.IDENTIFIER, "");
-      table = hadoopTables.load(location);
-
-      LOG.info("Table loaded by HadoopTables with location as {}", location);
-    }
-
-    // writer parallelism
-    Integer writerParallelism = config.getInteger(
-        IcebergConnectorConstant.WRITER_PARALLELISM, IcebergConnectorConstant.DEFAULT_WRITER_PARALLELISM);
-
     // append Iceberg sink to data stream
     IcebergSinkAppender<Tuple2<Boolean, Row>> appender =
         new IcebergSinkAppender<Tuple2<Boolean, Row>>(
-            table, config, FlinkTuple2Serializer.getInstance(), "Iceberg_DataStream_sink_generated_by_TableSink_api")
-        .withWriterParallelism(writerParallelism);
+            config, FlinkTuple2Serializer.getInstance(), "Iceberg_DataStream_sink_generated_by_TableSink_api");
 
     return appender.append(dataStream);
   }
@@ -164,33 +113,6 @@ public class IcebergTableSink implements UpsertStreamTableSink<Row> {
     return org.apache.flink.api.common.typeinfo.Types.TUPLE(
         org.apache.flink.api.common.typeinfo.Types.BOOLEAN,
         getRecordType());
-  }
-
-  private Object buildCatalog() {
-    String catalogType = config.getString(IcebergConnectorConstant.CATALOG_TYPE, IcebergConnectorConstant.HIVE_CATALOG);
-
-    switch (catalogType.toUpperCase()) {
-      case IcebergConnectorConstant.HIVE_CATALOG:
-        org.apache.hadoop.conf.Configuration hadoopConf = new org.apache.hadoop.conf.Configuration();
-        hadoopConf.set(HiveConf.ConfVars.METASTOREURIS.varname,
-            config.getString(IcebergConnectorConstant.HIVE_METASTORE_URIS, ""));
-        /* hive metastore warehouse location is not a must when table creation by Hive catalog is not supported
-        hadoopConf.set(HiveConf.ConfVars.METASTOREWAREHOUSE.varname,
-            config.getString(IcebergConnectorConstant.WAREHOUSE_LOCATION, ""));
-        */
-        return HiveCatalogs.loadCatalog(hadoopConf);
-
-      case IcebergConnectorConstant.HADOOP_CATALOG:
-        return new HadoopCatalog(
-            new org.apache.hadoop.conf.Configuration(),
-            config.getString(IcebergConnectorConstant.WAREHOUSE_LOCATION, ""));
-
-      case IcebergConnectorConstant.HADOOP_TABLES:
-        return new HadoopTables();
-
-      default:
-        throw new IllegalArgumentException("Unknown catalog type: " + catalogType);
-    }
   }
 
   private PartitionSpec buildPartitionSpec(Schema schema) {

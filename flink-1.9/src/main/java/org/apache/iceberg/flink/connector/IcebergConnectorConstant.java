@@ -21,22 +21,16 @@ package org.apache.iceberg.flink.connector;
 
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
 
 public class IcebergConnectorConstant {
   private IcebergConnectorConstant() {}
 
-  public static final String CATALOG_TYPE = "catalog-type";
-  public static final String HIVE_CATALOG = "HIVE";
-  public static final String HADOOP_CATALOG = "HADOOP";
-  public static final String HADOOP_TABLES = "HADOOP_TABLES";
-  public static final List<String> VALID_CATALOG_TYPE_OPTIONS = ImmutableList.of(
-      HIVE_CATALOG, HADOOP_CATALOG, HADOOP_TABLES);
-  public static final String CATALOG_TYPE_DEFAULT = HIVE_CATALOG;
-
+  // for HiveCatalog
   public static final String HIVE_METASTORE_URIS = "hive-metastore-uris";
-  public static final String WAREHOUSE_LOCATION = "warehouse-location";
 
+  // table identifier
   public static final String IDENTIFIER = "identifier";
 
   // for table creation in table sink only
@@ -62,6 +56,20 @@ public class IcebergConnectorConstant {
       PARTITION_TRANSFORM_DAY,
       PARTITION_TRANSFORM_HOUR);
 
+  // writer parallelism
+  // the default value 0 is only a trigger to set the parallelism of writer to the parallelism of the upstream operator
+  // to which this sink is chained
+  public static final String WRITER_PARALLELISM = "writer-parallelism";
+  public static final int DEFAULT_WRITER_PARALLELISM = 0;
+
+  // rotate the data file if its size is over this limit (in byte)
+  public static final String MAX_FILE_SIZE_BYTES = "max-file-size-bytes";
+  public static final long DEFAULT_MAX_FILE_SIZE_BYTES = TableProperties.WRITE_TARGET_FILE_SIZE_BYTES_DEFAULT;
+
+  // when meeting incompatible record (have any exception when processing record), skip it or throw the exception
+  public static final String SKIP_INCOMPATIBLE_RECORD = "skip-incompatible-record";
+  public static final boolean DEFAULT_SKIP_INCOMPATIBLE_RECORD = false;
+
   // Temporary location to store manifest files before doing the commit operation in Iceberg.
   // This is an INTERNAL configuration used in IcebergCommitter when taking snapshot.
   // The default is the "temp_manifest" folder under table's base location, at the same level as "data" and "metadata".
@@ -69,38 +77,20 @@ public class IcebergConnectorConstant {
   public static final String TEMP_MANIFEST_LOCATION = "temp-manifest-location";
   public static final String DEFAULT_TEMP_MANIFEST_FOLDER_NAME = "temp_manifest";
 
-  // writer parallelism and its default value are for table sink only.
-  // for data stream sink, use IcebergSinkAppender#withWriterParallelism() instead.
-  public static final String WRITER_PARALLELISM = "writer-parallelism";
-  public static final int DEFAULT_WRITER_PARALLELISM = 0;  // 0 is only a trigger to set the parallelism of writer
-                                                           // to the parallelism of the upstream operator
-                                                           // to which this sink is chained
-
-  // watermark timestamp function, used for statistics
-  // Disabled for now
-  public static final String WATERMARK_TIMESTAMP_FIELD = "watermark-timestamp-field";
-  public static final String WATERMARK_TIMESTAMP_UNIT = "watermark-timestamp-unit";
-  public static final String DEFAULT_WATERMARK_TIMESTAMP_UNIT = TimeUnit.MILLISECONDS.name();
-
-  // rotate the data file if its size is over the limit
-  public static final String MAX_FILE_SIZE = "max-file-size";
-  public static final long DEFAULT_MAX_FILE_SIZE = 1024L * 1024L * 1024L * 4;  // 4GB
-
-  // when meeting incompatible record (have any exception when processing record), skip it or throw the exception
-  public static final String SKIP_INCOMPATIBLE_RECORD = "skip-incompatible-record";
-  public static final boolean DEFAULT_SKIP_INCOMPATIBLE_RECORD = false;
-
-  // when restoring from snapshot, the un-committed manifest file (and all data files included) recovered from snapshot
-  // will be dropped if its checkpoint timestamp exceeds the retention (in hour)
-  public static final String SNAPSHOT_RETENTION_HOURS = "snapshot-retention-hours";
-  public static final long DEFAULT_SNAPSHOT_RETENTION_HOURS = 0;  // infinite retention, never drop recovered manifest
-
-  // when restoring from snapshot, for those un-committed manifest file (and all data files included)
-  // recovered from snapshot and passes retention check, commit them to Iceberg or not
-  public static final String COMMIT_RESTORED_MANIFEST_FILES = "commit-restored-manifest-files";
-  public static final boolean DEFAULT_COMMIT_RESTORED_MANIFEST_FILES = true;
+  /**
+   * When restoring from snapshot, the un-committed manifest file (and all data files included) recovered from snapshot
+   * will be dropped if its checkpoint timestamp exceeds this retention time (in milli-second).
+   */
+  public static final String SNAPSHOT_RETENTION_TIME = "snapshot-retention-time";
+  public static final long INFINITE_SNAPSHOT_RETENTION_TIME = -1;  // infinite retention, never drop recovered manifest
 
   // when checkpoint is not enabled, the interval in which data file flush and Iceberg commit are performed
   public static final String FLUSH_COMMIT_INTERVAL = "flush-commit-interval";
   public static final long DEFAULT_FLUSH_COMMIT_INTERVAL = 60 * 1000L;
+
+  // watermark timestamp function, used for statistics
+  // disabled for now
+  public static final String WATERMARK_TIMESTAMP_FIELD = "watermark-timestamp-field";
+  public static final String WATERMARK_TIMESTAMP_UNIT = "watermark-timestamp-unit";
+  public static final String DEFAULT_WATERMARK_TIMESTAMP_UNIT = TimeUnit.MILLISECONDS.name();
 }

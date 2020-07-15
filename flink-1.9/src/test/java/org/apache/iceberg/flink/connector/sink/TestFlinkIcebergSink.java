@@ -50,7 +50,7 @@ public class TestFlinkIcebergSink extends AbstractTestBase {
 
   @Rule
   public TemporaryFolder tempFolder = new TemporaryFolder();
-  private String tableLocation;
+  private String warehouseLocation;
   private static final int TOTAL_COUNT = 20000;
   private static final String NAMESPACE = "default";
   private static final String TABLE = "table1";
@@ -58,7 +58,7 @@ public class TestFlinkIcebergSink extends AbstractTestBase {
   @Before
   public void before() throws IOException {
     File folder = tempFolder.newFolder();
-    tableLocation = folder.getAbsolutePath();
+    warehouseLocation = folder.getAbsolutePath();
   }
 
   @Test
@@ -73,7 +73,7 @@ public class TestFlinkIcebergSink extends AbstractTestBase {
 
   private void checkData() {
     Configuration conf = new Configuration();
-    Catalog catalog = new HadoopCatalog(conf, tableLocation);
+    Catalog catalog = new HadoopCatalog(conf, warehouseLocation);
     Table newTable = catalog.loadTable(TableIdentifier.parse(NAMESPACE + "." + TABLE));
     List<Record> results = Lists.newArrayList(IcebergGenerics.read(newTable).build());
     Assert.assertEquals(results.size(), TOTAL_COUNT);
@@ -97,26 +97,24 @@ public class TestFlinkIcebergSink extends AbstractTestBase {
         .addSource(new TestSource())
         .setParallelism(parallelism);
 
-    Table table = createIcebergTable(tableLocation, partitionSpec, schema);
+    Table table = createIcebergTable(partitionSpec, schema);
     Assert.assertNotNull(table);
 
     org.apache.flink.configuration.Configuration flinkConf = new org.apache.flink.configuration.Configuration();
-    flinkConf.setString(IcebergConnectorConstant.IDENTIFIER, NAMESPACE + "." + TABLE);
-    flinkConf.setString(IcebergConnectorConstant.CATALOG_TYPE, IcebergConnectorConstant.HADOOP_CATALOG);
-    flinkConf.setString(IcebergConnectorConstant.WAREHOUSE_LOCATION, tableLocation);
+    flinkConf.setString(IcebergConnectorConstant.IDENTIFIER, table.location() /* table loaded by HadoopTables */);
     flinkConf.setLong(IcebergConnectorConstant.FLUSH_COMMIT_INTERVAL, 60 * 1000L);
 
-    IcebergSinkAppender appender = new IcebergSinkAppender(table, flinkConf,
-              PassThroughRecordSerializer.getInstance(), "IcebergSink");
+    IcebergSinkAppender<Row> appender = new IcebergSinkAppender<>(flinkConf,
+        PassThroughRecordSerializer.getInstance(), "IcebergSink");
     appender.append(dataStream);
     env.execute("Test Iceberg DataStream");
     table.refresh();
     checkData();
   }
 
-  private Table createIcebergTable(String newTableLocation, PartitionSpec spec, Schema schema) {
+  private Table createIcebergTable(PartitionSpec spec, Schema schema) {
     Configuration conf = new Configuration();
-    Catalog catalog = new HadoopCatalog(conf, newTableLocation);
+    Catalog catalog = new HadoopCatalog(conf, warehouseLocation);
     TableIdentifier tableIdentifier = TableIdentifier.parse(NAMESPACE + "." + TABLE);
     if (catalog.tableExists(tableIdentifier)) {
       catalog.dropTable(tableIdentifier, true);

@@ -79,9 +79,7 @@ public class IcebergTableFactory implements
     properties.add(Schema.SCHEMA + ".#." + Schema.SCHEMA_FROM);
 
     // Iceberg specific
-    properties.add(IcebergValidator.CONNECTOR_ICEBERG_CATALOG_TYPE);
     properties.add(IcebergValidator.CONNECTOR_ICEBERG_HIVE_METASTORE_URIS);
-    properties.add(IcebergValidator.CONNECTOR_ICEBERG_WAREHOUSE_LOCATION);
 
     properties.add(IcebergValidator.CONNECTOR_ICEBERG_IDENTIFIER);
 
@@ -93,15 +91,12 @@ public class IcebergTableFactory implements
         IcebergValidator.CONNECTOR_ICEBERG_PARTITION_TRANSFORM);
     */
 
-    properties.add(IcebergValidator.CONNECTOR_ICEBERG_TEMP_MANIFEST_LOCATION);
-
     properties.add(IcebergValidator.CONNECTOR_ICEBERG_WRITER_PARALLELISM);
-
-    properties.add(IcebergValidator.CONNECTOR_ICEBERG_MAX_FILE_SIZE);
+    properties.add(IcebergValidator.CONNECTOR_ICEBERG_MAX_FILE_SIZE_BYTES);
     properties.add(IcebergValidator.CONNECTOR_ICEBERG_SKIP_INCOMPATIBLE_RECORD);
 
-    properties.add(IcebergValidator.CONNECTOR_ICEBERG_SNAPSHOT_RETENTION_HOURS);
-    properties.add(IcebergValidator.CONNECTOR_ICEBERG_COMMIT_RESTORED_MANIFEST_FILES);
+    properties.add(IcebergValidator.CONNECTOR_ICEBERG_TEMP_MANIFEST_LOCATION);
+    properties.add(IcebergValidator.CONNECTOR_ICEBERG_SNAPSHOT_RETENTION_TIME);
 
     properties.add(IcebergValidator.CONNECTOR_ICEBERG_FLUSH_COMMIT_INTERVAL);
 

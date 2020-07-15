@@ -106,9 +106,9 @@ public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
     this.timestampUnit = TimeUnit.valueOf(config.getString(IcebergConnectorConstant.WATERMARK_TIMESTAMP_UNIT,
         IcebergConnectorConstant.DEFAULT_WATERMARK_TIMESTAMP_UNIT));
 
-    this.maxFileSize = config.getLong(IcebergConnectorConstant.MAX_FILE_SIZE,
-        IcebergConnectorConstant.DEFAULT_MAX_FILE_SIZE);
-    LOG.info("Max data file size is set to {}", this.maxFileSize);
+    this.maxFileSize = config.getLong(IcebergConnectorConstant.MAX_FILE_SIZE_BYTES,
+        IcebergConnectorConstant.DEFAULT_MAX_FILE_SIZE_BYTES);
+    LOG.info("Max file size is set to {} bytes", this.maxFileSize);
 
     this.skipIncompatibleRecord = config.getBoolean(IcebergConnectorConstant.SKIP_INCOMPATIBLE_RECORD,
         IcebergConnectorConstant.DEFAULT_SKIP_INCOMPATIBLE_RECORD);
@@ -260,8 +260,10 @@ public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
     try {
       processInternal(value);
     } catch (Exception t) {
-      if (!skipIncompatibleRecord) {
+      if (!skipIncompatibleRecord) {  // not skip but throw the exception out
         throw t;
+      } else {  // swallow and log the exception
+        LOG.warn("Incompatible record [{}] processed with exception: ", value, t);
       }
     }
   }

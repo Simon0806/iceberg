@@ -156,13 +156,12 @@ public class TestFlinkTableSink extends AbstractTestBase {
               "WITH (" +
               "'connector.type'='iceberg', " +
               "'connector.version'='0.8.0', " +
-              "'connector.iceberg.catalog-type'='HIVE', " +
               "'connector.iceberg.hive-metastore-uris'='%s', " +
               "'connector.iceberg.identifier'='%s', " +
               "'connector.iceberg.writer-parallelism'='%s', " +
               "'update-mode'='upsert')",
           hiveConf.get(METASTOREURIS.varname),
-          NAMESPACE_DOT_TABLE,
+          NAMESPACE_DOT_TABLE,  // table loaded by HiveCatalog
           parallelism);
       tEnv.sqlUpdate(ddl);
     } else {
@@ -170,9 +169,8 @@ public class TestFlinkTableSink extends AbstractTestBase {
       tEnv
           .connect(Iceberg.newInstance()
               .withVersion(IcebergValidator.CONNECTOR_VERSION_VALUE)
-              .withCatalogType("HIVE")
               .withHiveMetastoreUris(hiveConf.get(METASTOREURIS.varname))
-              .withIdentifier(NAMESPACE_DOT_TABLE)
+              .withIdentifier(NAMESPACE_DOT_TABLE)  // table loaded by HiveCatalog
               .withWriterParallelism(parallelism))
           .withSchema(new Schema().schema(WordCountData.FLINK_SCHEMA))
           .inUpsertMode()

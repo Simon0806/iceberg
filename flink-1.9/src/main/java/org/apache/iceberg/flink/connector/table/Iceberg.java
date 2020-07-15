@@ -41,18 +41,8 @@ public class Iceberg extends ConnectorDescriptor {
     return this;
   }
 
-  public Iceberg withCatalogType(String catalogType) {
-    this.properties.putString(IcebergValidator.CONNECTOR_ICEBERG_CATALOG_TYPE, catalogType);
-    return this;
-  }
-
   public Iceberg withHiveMetastoreUris(String uris) {
     this.properties.putString(IcebergValidator.CONNECTOR_ICEBERG_HIVE_METASTORE_URIS, uris);
-    return this;
-  }
-
-  public Iceberg withWarehouseLocation(String location) {
-    this.properties.putString(IcebergValidator.CONNECTOR_ICEBERG_WAREHOUSE_LOCATION, location);
     return this;
   }
 

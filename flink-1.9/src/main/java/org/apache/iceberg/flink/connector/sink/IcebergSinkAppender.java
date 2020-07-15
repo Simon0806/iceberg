@@ -25,6 +25,8 @@ import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.DataStreamSink;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.flink.connector.IcebergConnectorConstant;
+import org.apache.iceberg.flink.connector.IcebergTableUtil;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,27 +40,14 @@ import org.slf4j.LoggerFactory;
 public class IcebergSinkAppender<IN> {
   private static final Logger LOG = LoggerFactory.getLogger(IcebergSinkAppender.class);
 
-  private final Table table;
   private final Configuration config;
   private final String sinkName;
   private RecordSerializer<IN> serializer;
-  private Integer writerParallelism;
 
-  public IcebergSinkAppender(Table table, Configuration config,
-                             RecordSerializer<IN> serializer, String sinkName) {
-    this.table = table;
+  public IcebergSinkAppender(Configuration config, RecordSerializer<IN> serializer, String sinkName) {
     this.config = config;
     this.sinkName = sinkName;
     this.serializer = serializer;
-  }
-
-  /**
-   * Optional. Explicitly set the parallelism for Iceberg writer operator.
-   * Otherwise, the parallelism of the upstream operator is used.
-   */
-  public IcebergSinkAppender<IN> withWriterParallelism(Integer writerParallelism) {
-    this.writerParallelism = writerParallelism;
-    return this;
   }
 
   /**
@@ -66,6 +55,8 @@ public class IcebergSinkAppender<IN> {
    */
   public DataStreamSink<FlinkDataFile> append(DataStream<IN> dataStream) {
     Preconditions.checkNotNull(serializer, "serializer can not be null");
+
+    Table table = IcebergTableUtil.findTable(config);
     IcebergWriter<IN> writer = new IcebergWriter<>(table, serializer, config);
     IcebergCommitter committer = new IcebergCommitter(table, config);
 
@@ -76,8 +67,10 @@ public class IcebergSinkAppender<IN> {
         .uid(writerId);
 
     // set writer's parallelism
-    if (writerParallelism == null /* not set explicitly by calling withWriterParallelism(Integer) */ ||
-        writerParallelism <= 0 /* invalid input */) {
+    int writerParallelism = config.getInteger(
+        IcebergConnectorConstant.WRITER_PARALLELISM, IcebergConnectorConstant.DEFAULT_WRITER_PARALLELISM);
+    if (writerParallelism == IcebergConnectorConstant.DEFAULT_WRITER_PARALLELISM ||
+        writerParallelism < 0 /* invalid input */) {
       LOG.info("Iceberg writer parallelism not set explicitly or given an invalid input, " +
           "so default it to the parallelism of the upstream operator");
       writerParallelism = dataStream.getParallelism();

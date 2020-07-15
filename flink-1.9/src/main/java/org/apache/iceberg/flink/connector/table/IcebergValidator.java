@@ -40,13 +40,9 @@ class IcebergValidator extends ConnectorDescriptorValidator {
   // Iceberg specific
   public static final String CONNECTOR_ICEBERG_PREFIX = CONNECTOR + "." + "iceberg";
 
-  // catalog
-  public static final String CONNECTOR_ICEBERG_CATALOG_TYPE = CONNECTOR_ICEBERG_PREFIX + "." +
-      IcebergConnectorConstant.CATALOG_TYPE;
+  // for Hive catalog only
   public static final String CONNECTOR_ICEBERG_HIVE_METASTORE_URIS = CONNECTOR_ICEBERG_PREFIX + "." +
-      IcebergConnectorConstant.HIVE_METASTORE_URIS;  // for Hive catalog only
-  public static final String CONNECTOR_ICEBERG_WAREHOUSE_LOCATION = CONNECTOR_ICEBERG_PREFIX + "." +
-      IcebergConnectorConstant.WAREHOUSE_LOCATION;  // for both Hive and Hadoop catalog
+      IcebergConnectorConstant.HIVE_METASTORE_URIS;
 
   // table identifier, could be namespace.table for catalog or a path for HadoopTables
   public static final String CONNECTOR_ICEBERG_IDENTIFIER = CONNECTOR_ICEBERG_PREFIX + "." +
@@ -61,18 +57,16 @@ class IcebergValidator extends ConnectorDescriptorValidator {
   // for IcebergWriter
   public static final String CONNECTOR_ICEBERG_WRITER_PARALLELISM = CONNECTOR_ICEBERG_PREFIX + "." +
       IcebergConnectorConstant.WRITER_PARALLELISM;
-  public static final String CONNECTOR_ICEBERG_MAX_FILE_SIZE = CONNECTOR_ICEBERG_PREFIX + "." +
-      IcebergConnectorConstant.MAX_FILE_SIZE;
+  public static final String CONNECTOR_ICEBERG_MAX_FILE_SIZE_BYTES = CONNECTOR_ICEBERG_PREFIX + "." +
+      IcebergConnectorConstant.MAX_FILE_SIZE_BYTES;
   public static final String CONNECTOR_ICEBERG_SKIP_INCOMPATIBLE_RECORD = CONNECTOR_ICEBERG_PREFIX + "." +
       IcebergConnectorConstant.SKIP_INCOMPATIBLE_RECORD;
 
   // for IcebergCommitter
   public static final String CONNECTOR_ICEBERG_TEMP_MANIFEST_LOCATION = CONNECTOR_ICEBERG_PREFIX + "." +
       IcebergConnectorConstant.TEMP_MANIFEST_LOCATION;
-  public static final String CONNECTOR_ICEBERG_SNAPSHOT_RETENTION_HOURS = CONNECTOR_ICEBERG_PREFIX + "." +
-      IcebergConnectorConstant.SNAPSHOT_RETENTION_HOURS;
-  public static final String CONNECTOR_ICEBERG_COMMIT_RESTORED_MANIFEST_FILES = CONNECTOR_ICEBERG_PREFIX + "." +
-      IcebergConnectorConstant.COMMIT_RESTORED_MANIFEST_FILES;
+  public static final String CONNECTOR_ICEBERG_SNAPSHOT_RETENTION_TIME = CONNECTOR_ICEBERG_PREFIX + "." +
+      IcebergConnectorConstant.SNAPSHOT_RETENTION_TIME;
 
   // for both IcebergWriter and IcebergCommitter
   public static final String CONNECTOR_ICEBERG_FLUSH_COMMIT_INTERVAL = CONNECTOR_ICEBERG_PREFIX + "." +
@@ -87,22 +81,18 @@ class IcebergValidator extends ConnectorDescriptorValidator {
     properties.validateValue(CONNECTOR_TYPE, CONNECTOR_TYPE_VALUE, false);
 
     // Iceberg specific
-    properties.validateEnumValues(
-        CONNECTOR_ICEBERG_CATALOG_TYPE, false, IcebergConnectorConstant.VALID_CATALOG_TYPE_OPTIONS);
     properties.validateString(CONNECTOR_ICEBERG_HIVE_METASTORE_URIS, true, 1);
-    properties.validateString(CONNECTOR_ICEBERG_WAREHOUSE_LOCATION, true, 1);
 
     properties.validateString(CONNECTOR_ICEBERG_IDENTIFIER, false, 1);
 
     properties.validateInt(CONNECTOR_ICEBERG_WRITER_PARALLELISM, false, 0);
-    properties.validateInt(CONNECTOR_ICEBERG_MAX_FILE_SIZE, true, 1);
+    properties.validateLong(CONNECTOR_ICEBERG_MAX_FILE_SIZE_BYTES, true, 1);
     properties.validateBoolean(CONNECTOR_ICEBERG_SKIP_INCOMPATIBLE_RECORD, true);
 
     properties.validateString(CONNECTOR_ICEBERG_TEMP_MANIFEST_LOCATION, true, 1);
-    properties.validateInt(CONNECTOR_ICEBERG_SNAPSHOT_RETENTION_HOURS, true, 0);
-    properties.validateBoolean(CONNECTOR_ICEBERG_COMMIT_RESTORED_MANIFEST_FILES, true);
+    properties.validateLong(CONNECTOR_ICEBERG_SNAPSHOT_RETENTION_TIME, true, 0);
 
-    properties.validateInt(CONNECTOR_ICEBERG_FLUSH_COMMIT_INTERVAL, true, 1);
+    properties.validateLong(CONNECTOR_ICEBERG_FLUSH_COMMIT_INTERVAL, true, 1);
   }
 
   public static IcebergValidator getInstance() {
@@ -113,50 +103,10 @@ class IcebergValidator extends ConnectorDescriptorValidator {
   public Configuration getConfiguration(DescriptorProperties properties) {
     Configuration config = new Configuration();
 
-    // catalog
-    String catalogType = properties.getString(CONNECTOR_ICEBERG_CATALOG_TYPE);
-    config.setString(IcebergConnectorConstant.CATALOG_TYPE, catalogType);
-
-    switch (catalogType.toUpperCase()) {
-      case IcebergConnectorConstant.HIVE_CATALOG:
-        // hive metastore uris
-        if (properties.containsKey(CONNECTOR_ICEBERG_HIVE_METASTORE_URIS)) {
-          config.setString(IcebergConnectorConstant.HIVE_METASTORE_URIS,
-              properties.getString(CONNECTOR_ICEBERG_HIVE_METASTORE_URIS));
-        } else {
-          throw new IllegalArgumentException("Hive metastore uris not provided by " +
-              CONNECTOR_ICEBERG_HIVE_METASTORE_URIS);
-        }
-
-        // hive metastore warehouse location
-        /* hive metastore warehouse location is not a must when table creation by Hive catalog is not supported
-        if (properties.containsKey(CONNECTOR_ICEBERG_WAREHOUSE_LOCATION)) {
-          config.setString(HiveConf.ConfVars.METASTOREWAREHOUSE.varname,
-              properties.getString(CONNECTOR_ICEBERG_WAREHOUSE_LOCATION));
-        } else {
-          throw new IllegalArgumentException("Hive metastore warehouse location not provided by " +
-              CONNECTOR_ICEBERG_WAREHOUSE_LOCATION);
-        }
-        */
-        break;
-
-      case IcebergConnectorConstant.HADOOP_CATALOG:
-        // warehouse location
-        if (properties.containsKey(CONNECTOR_ICEBERG_WAREHOUSE_LOCATION)) {
-          config.setString(IcebergConnectorConstant.WAREHOUSE_LOCATION,
-              properties.getString(CONNECTOR_ICEBERG_WAREHOUSE_LOCATION));
-        } else {
-          throw new IllegalArgumentException("Warehouse location for Hadoop catalog not provided by " +
-              CONNECTOR_ICEBERG_WAREHOUSE_LOCATION);
-        }
-        break;
-
-      case IcebergConnectorConstant.HADOOP_TABLES:
-        // do nothing, table location will be set by identifier
-        break;
-
-      default:
-        throw new IllegalArgumentException("Unknown catalog type: " + catalogType);
+    // hive metastore uris for HiveCatalog
+    if (properties.containsKey(CONNECTOR_ICEBERG_HIVE_METASTORE_URIS)) {
+      config.setString(IcebergConnectorConstant.HIVE_METASTORE_URIS,
+          properties.getString(CONNECTOR_ICEBERG_HIVE_METASTORE_URIS));
     }
 
     // table identifier
@@ -208,9 +158,9 @@ class IcebergValidator extends ConnectorDescriptorValidator {
 
     config.setInteger(IcebergConnectorConstant.WRITER_PARALLELISM,
         properties.getInt(CONNECTOR_ICEBERG_WRITER_PARALLELISM));
-    if (properties.containsKey(CONNECTOR_ICEBERG_MAX_FILE_SIZE)) {
-      config.setString(IcebergConnectorConstant.MAX_FILE_SIZE,
-          properties.getString(CONNECTOR_ICEBERG_MAX_FILE_SIZE));
+    if (properties.containsKey(CONNECTOR_ICEBERG_MAX_FILE_SIZE_BYTES)) {
+      config.setLong(IcebergConnectorConstant.MAX_FILE_SIZE_BYTES,
+          properties.getLong(CONNECTOR_ICEBERG_MAX_FILE_SIZE_BYTES));
     }
     if (properties.containsKey(CONNECTOR_ICEBERG_SKIP_INCOMPATIBLE_RECORD)) {
       config.setBoolean(IcebergConnectorConstant.SKIP_INCOMPATIBLE_RECORD,
@@ -221,18 +171,14 @@ class IcebergValidator extends ConnectorDescriptorValidator {
       config.setString(IcebergConnectorConstant.TEMP_MANIFEST_LOCATION,
           properties.getString(CONNECTOR_ICEBERG_TEMP_MANIFEST_LOCATION));
     }
-    if (properties.containsKey(CONNECTOR_ICEBERG_SNAPSHOT_RETENTION_HOURS)) {
-      config.setBoolean(IcebergConnectorConstant.SNAPSHOT_RETENTION_HOURS,
-          properties.getBoolean(CONNECTOR_ICEBERG_SNAPSHOT_RETENTION_HOURS));
-    }
-    if (properties.containsKey(CONNECTOR_ICEBERG_COMMIT_RESTORED_MANIFEST_FILES)) {
-      config.setBoolean(IcebergConnectorConstant.COMMIT_RESTORED_MANIFEST_FILES,
-          properties.getBoolean(CONNECTOR_ICEBERG_COMMIT_RESTORED_MANIFEST_FILES));
+    if (properties.containsKey(CONNECTOR_ICEBERG_SNAPSHOT_RETENTION_TIME)) {
+      config.setLong(IcebergConnectorConstant.SNAPSHOT_RETENTION_TIME,
+          properties.getLong(CONNECTOR_ICEBERG_SNAPSHOT_RETENTION_TIME));
     }
 
     if (properties.containsKey(CONNECTOR_ICEBERG_FLUSH_COMMIT_INTERVAL)) {
-      config.setBoolean(IcebergConnectorConstant.FLUSH_COMMIT_INTERVAL,
-          properties.getBoolean(CONNECTOR_ICEBERG_FLUSH_COMMIT_INTERVAL));
+      config.setLong(IcebergConnectorConstant.FLUSH_COMMIT_INTERVAL,
+          properties.getLong(CONNECTOR_ICEBERG_FLUSH_COMMIT_INTERVAL));
     }
 
     return config;

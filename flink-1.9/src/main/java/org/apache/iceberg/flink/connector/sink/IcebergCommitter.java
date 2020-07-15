@@ -54,7 +54,6 @@ import org.apache.flink.streaming.runtime.tasks.ProcessingTimeCallback;
 import org.apache.flink.streaming.runtime.tasks.ProcessingTimeService;
 import org.apache.flink.util.Preconditions;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.ManifestFile;
@@ -65,18 +64,14 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.UpdateProperties;
-import org.apache.iceberg.catalog.Catalog;
-import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.flink.connector.IcebergConnectorConstant;
+import org.apache.iceberg.flink.connector.IcebergTableUtil;
 import org.apache.iceberg.flink.connector.model.CommitMetadata;
 import org.apache.iceberg.flink.connector.model.CommitMetadataUtil;
 import org.apache.iceberg.flink.connector.model.FlinkManifestFile;
 import org.apache.iceberg.flink.connector.model.FlinkManifestFileUtil;
 import org.apache.iceberg.flink.connector.model.GenericFlinkManifestFile;
 import org.apache.iceberg.flink.connector.model.ManifestFileState;
-import org.apache.iceberg.hadoop.HadoopCatalog;
-import org.apache.iceberg.hadoop.HadoopTables;
-import org.apache.iceberg.hive.HiveCatalogs;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.OutputFile;
 import org.apache.iceberg.relocated.com.google.common.base.Joiner;
@@ -112,8 +107,7 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
 
   private final boolean watermarkEnabled;
   private final String watermarkPropKey;
-  private final long snapshotRetentionHours;
-  private final boolean commitRestoredManifestFiles;
+  private final long snapshotRetention;
   private final String tempManifestLocation;
   private final PartitionSpec spec;
   private final FileIO io;
@@ -160,13 +154,18 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
     }
     watermarkPropKey = WATERMARK_PROP_KEY_PREFIX;
 
-    snapshotRetentionHours = config.getLong(IcebergConnectorConstant.SNAPSHOT_RETENTION_HOURS,
-        IcebergConnectorConstant.DEFAULT_SNAPSHOT_RETENTION_HOURS);
-    LOG.info("Snapshot retention is set to {} hours", snapshotRetentionHours);
-
-    commitRestoredManifestFiles = config.getBoolean(IcebergConnectorConstant.COMMIT_RESTORED_MANIFEST_FILES,
-        IcebergConnectorConstant.DEFAULT_COMMIT_RESTORED_MANIFEST_FILES);
-    LOG.info("{} is set to {}", IcebergConnectorConstant.COMMIT_RESTORED_MANIFEST_FILES, commitRestoredManifestFiles);
+    snapshotRetention = config.getLong(IcebergConnectorConstant.SNAPSHOT_RETENTION_TIME,
+        IcebergConnectorConstant.INFINITE_SNAPSHOT_RETENTION_TIME /* default to infinite */);
+    if (snapshotRetention == IcebergConnectorConstant.INFINITE_SNAPSHOT_RETENTION_TIME) {  // default
+      LOG.info("Snapshot retention is not set, or explicitly set to the default value as {}, " +
+          "so make it to be infinite (never drop any recovered manifest files)",
+          IcebergConnectorConstant.INFINITE_SNAPSHOT_RETENTION_TIME);
+    } else if (snapshotRetention < 0) {  // invalid input
+      throw new IllegalArgumentException(
+          String.format("Snapshot retention time must not be negative, but is %d", snapshotRetention));
+    } else {
+      LOG.info("Snapshot retention is set to {} ms", snapshotRetention);
+    }
 
     tempManifestLocation = getTempManifestLocation(config, table.location());
     LOG.info("Temp manifest location set to {}", tempManifestLocation);
@@ -245,38 +244,7 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
   }
 
   void init() {
-    // TODO: duplicate logic, to extract
-    org.apache.hadoop.conf.Configuration hadoopConf = new org.apache.hadoop.conf.Configuration();
-    String catalogType = config.getString(IcebergConnectorConstant.CATALOG_TYPE,
-                                          IcebergConnectorConstant.CATALOG_TYPE_DEFAULT);
-    Object catalogOrHadoopTables = null;
-    switch (catalogType.toUpperCase()) {
-      case IcebergConnectorConstant.HIVE_CATALOG:
-        hadoopConf.set(ConfVars.METASTOREURIS.varname,
-            config.getString(IcebergConnectorConstant.HIVE_METASTORE_URIS, ""));
-        catalogOrHadoopTables = HiveCatalogs.loadCatalog(hadoopConf);
-        break;
-
-      case IcebergConnectorConstant.HADOOP_CATALOG:
-        catalogOrHadoopTables = new HadoopCatalog(hadoopConf,
-            config.getString(IcebergConnectorConstant.WAREHOUSE_LOCATION, ""));
-        break;
-
-      case IcebergConnectorConstant.HADOOP_TABLES:
-        catalogOrHadoopTables = new HadoopTables(hadoopConf);
-        break;
-
-      default:
-        throw new UnsupportedOperationException("Unknown catalog type or not set: " + catalogType);
-    }
-
-    if (catalogOrHadoopTables instanceof Catalog) {  // Hive or Hadoop catalog
-      Catalog catalog = (Catalog) catalogOrHadoopTables;
-      table = catalog.loadTable(TableIdentifier.parse(identifier));
-    } else {  // HadoopTables
-      HadoopTables hadoopTables = (HadoopTables) catalogOrHadoopTables;
-      table = hadoopTables.load(identifier /* as location */);
-    }
+    table = IcebergTableUtil.findTable(config);
 
     pendingDataFiles = new ArrayList<>();
     flinkManifestFiles = new ArrayList<>();
@@ -325,22 +293,19 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
         LOG.info("Iceberg committer {} restored {} manifest files: {}",
             identifier, flinkManifestFiles.size(), flinkManifestFiles);
         final long now = System.currentTimeMillis();
-        if (snapshotRetentionHours != 0 &&
-            now - metadata.getLastCheckpointTimestamp() > TimeUnit.HOURS.toMillis(snapshotRetentionHours)) {
+        if (snapshotRetention != IcebergConnectorConstant.INFINITE_SNAPSHOT_RETENTION_TIME &&
+            now - metadata.getLastCheckpointTimestamp() > snapshotRetention /* in milli-second */) {
+          // manifest recovered is expired, so dropped
           flinkManifestFiles.clear();
           LOG.info("Iceberg committer {} cleared restored manifest files as checkpoint timestamp is too old: " +
-                  "checkpointTimestamp = {}, now = {}, snapshotRetentionHours = {}",
-              identifier, metadata.getLastCheckpointTimestamp(), now, snapshotRetentionHours);
+                  "checkpointTimestamp = {}, now = {}, snapshotRetention = {}",
+              identifier, metadata.getLastCheckpointTimestamp(), now, snapshotRetention);
         } else {  // manifest recovered is in retention
           flinkManifestFiles = removeCommittedManifests(flinkManifestFiles);
           if (flinkManifestFiles.isEmpty()) {
             LOG.info("Iceberg committer {} has zero uncommitted manifest files from restored state", identifier);
           } else {
-            if (commitRestoredManifestFiles) {
-              commitRestoredManifestFiles();
-            } else {
-              LOG.info("skip commit of restored manifest files");
-            }
+            commitRestoredManifestFiles();
           }
         }
       } else {
