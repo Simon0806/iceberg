@@ -333,7 +333,7 @@ public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
       switch (format) {
         case PARQUET:
           return Parquet.write(file)
-              .createWriterFunc(FlinkParquetWriters::buildRowWriter)
+              .createWriterFunc(FlinkParquetWriters::buildWriter)
               .setAll(tableProps)
               .metricsConfig(metricsConfig)
               .schema(schema)

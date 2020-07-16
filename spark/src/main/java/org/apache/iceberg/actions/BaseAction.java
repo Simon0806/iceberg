@@ -21,9 +21,6 @@ package org.apache.iceberg.actions;
 
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.Table;
-import org.apache.iceberg.hadoop.HadoopFileIO;
-import org.apache.iceberg.io.FileIO;
-import org.apache.spark.util.SerializableConfiguration;
 
 abstract class BaseAction<R> implements Action<R> {
 
@@ -33,21 +30,15 @@ abstract class BaseAction<R> implements Action<R> {
     String tableName = table().toString();
     if (tableName.contains("/")) {
       return tableName + "#" + type;
-    } else if (tableName.startsWith("hadoop.") || tableName.startsWith("hive.")) {
-      // HiveCatalog and HadoopCatalog prepend a logical name which we need to drop for Spark 2.4
-      return tableName.replaceFirst("(hadoop\\.)|(hive\\.)", "") + "." + type;
+    } else if (tableName.startsWith("hadoop.")) {
+      // for HadoopCatalog tables, use the table location to load the metadata table
+      // because IcebergCatalog uses HiveCatalog when the table is identified by name
+      return table().location() + "#" + type;
+    } else if (tableName.startsWith("hive.")) {
+      // HiveCatalog prepend a logical name which we need to drop for Spark 2.4
+      return tableName.replaceFirst("hive\\.", "") + "." + type;
     } else {
       return tableName + "." + type;
-    }
-  }
-
-  protected FileIO fileIO(Table table) {
-    if (table.io() instanceof HadoopFileIO) {
-      // we need to use Spark's SerializableConfiguration to avoid issues with Kryo serialization
-      SerializableConfiguration conf = new SerializableConfiguration(((HadoopFileIO) table.io()).conf());
-      return new HadoopFileIO(conf::value);
-    } else {
-      return table.io();
     }
   }
 }

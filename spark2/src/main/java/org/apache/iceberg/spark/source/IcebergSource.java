@@ -21,10 +21,7 @@ package org.apache.iceberg.spark.source;
 
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.iceberg.PartitionField;
-import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -36,8 +33,7 @@ import org.apache.iceberg.hive.HiveCatalogs;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.spark.SparkSchemaUtil;
-import org.apache.iceberg.transforms.Transform;
-import org.apache.iceberg.transforms.UnknownTransform;
+import org.apache.iceberg.spark.SparkUtil;
 import org.apache.iceberg.types.TypeUtil;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.broadcast.Broadcast;
@@ -82,7 +78,7 @@ public class IcebergSource implements DataSourceV2, ReadSupport, WriteSupport, D
     Table table = getTableAndResolveHadoopConfiguration(options, conf);
     String caseSensitive = lazySparkSession().conf().get("spark.sql.caseSensitive");
 
-    Broadcast<FileIO> io = lazySparkContext().broadcast(fileIO(table));
+    Broadcast<FileIO> io = lazySparkContext().broadcast(SparkUtil.serializableFileIO(table));
     Broadcast<EncryptionManager> encryptionManager = lazySparkContext().broadcast(table.encryption());
 
     Reader reader = new Reader(table, io, encryptionManager, Boolean.parseBoolean(caseSensitive), options);
@@ -104,12 +100,12 @@ public class IcebergSource implements DataSourceV2, ReadSupport, WriteSupport, D
     Table table = getTableAndResolveHadoopConfiguration(options, conf);
     Schema writeSchema = SparkSchemaUtil.convert(table.schema(), dsStruct);
     TypeUtil.validateWriteSchema(table.schema(), writeSchema, checkNullability(options), checkOrdering(options));
-    validatePartitionTransforms(table.spec());
+    SparkUtil.validatePartitionTransforms(table.spec());
     String appId = lazySparkSession().sparkContext().applicationId();
     String wapId = lazySparkSession().conf().get("spark.wap.id", null);
     boolean replacePartitions = mode == SaveMode.Overwrite;
 
-    Broadcast<FileIO> io = lazySparkContext().broadcast(fileIO(table));
+    Broadcast<FileIO> io = lazySparkContext().broadcast(SparkUtil.serializableFileIO(table));
     Broadcast<EncryptionManager> encryptionManager = lazySparkContext().broadcast(table.encryption());
 
     return Optional.of(new Writer(
@@ -126,13 +122,13 @@ public class IcebergSource implements DataSourceV2, ReadSupport, WriteSupport, D
     Table table = getTableAndResolveHadoopConfiguration(options, conf);
     Schema writeSchema = SparkSchemaUtil.convert(table.schema(), dsStruct);
     TypeUtil.validateWriteSchema(table.schema(), writeSchema, checkNullability(options), checkOrdering(options));
-    validatePartitionTransforms(table.spec());
+    SparkUtil.validatePartitionTransforms(table.spec());
     // Spark 2.4.x passes runId to createStreamWriter instead of real queryId,
     // so we fetch it directly from sparkContext to make writes idempotent
     String queryId = lazySparkSession().sparkContext().getLocalProperty(StreamExecution.QUERY_ID_KEY());
     String appId = lazySparkSession().sparkContext().applicationId();
 
-    Broadcast<FileIO> io = lazySparkContext().broadcast(fileIO(table));
+    Broadcast<FileIO> io = lazySparkContext().broadcast(SparkUtil.serializableFileIO(table));
     Broadcast<EncryptionManager> encryptionManager = lazySparkContext().broadcast(table.encryption());
 
     return new StreamingWriter(table, io, encryptionManager, options, queryId, mode, appId, writeSchema, dsStruct);
@@ -209,19 +205,6 @@ public class IcebergSource implements DataSourceV2, ReadSupport, WriteSupport, D
     options.keySet().stream()
         .filter(key -> key.startsWith("hadoop."))
         .forEach(key -> baseConf.set(key.replaceFirst("hadoop.", ""), options.get(key)));
-  }
-
-  private void validatePartitionTransforms(PartitionSpec spec) {
-    if (spec.fields().stream().anyMatch(field -> field.transform() instanceof UnknownTransform)) {
-      String unsupported = spec.fields().stream()
-          .map(PartitionField::transform)
-          .filter(transform -> transform instanceof UnknownTransform)
-          .map(Transform::toString)
-          .collect(Collectors.joining(", "));
-
-      throw new UnsupportedOperationException(
-          String.format("Cannot write using unsupported transforms: %s", unsupported));
-    }
   }
 
   private boolean checkNullability(DataSourceOptions options) {
