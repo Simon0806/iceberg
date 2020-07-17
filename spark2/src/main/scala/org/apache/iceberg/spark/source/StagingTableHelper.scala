@@ -18,8 +18,6 @@
  */
 package org.apache.iceberg.spark.source;
 
-import com.google.common.base.Joiner
-import com.google.common.collect.Maps
 import java.util.UUID
 import org.apache.iceberg.{BaseCombinedScanTask, BaseFileScanTask, DataFile, PartitionSpecParser, SchemaParser, Table}
 import org.apache.iceberg.TableProperties.{DEFAULT_NAME_MAPPING, STAGING_TABLE_NAME_TAG, STAGING_TABLE_NAME_TAG_DEFAULT}
@@ -28,6 +26,8 @@ import org.apache.iceberg.catalog.{Catalog, Namespace, TableIdentifier}
 import org.apache.iceberg.expressions.{Expressions, ResidualEvaluator}
 import org.apache.iceberg.hadoop.HadoopCatalog
 import org.apache.iceberg.hive.HiveCatalogs
+import org.apache.iceberg.relocated.com.google.common.base.Joiner
+import org.apache.iceberg.relocated.com.google.common.collect.Maps
 import org.apache.iceberg.spark.source.Reader.{InternalRowReaderFactory, ReadTask}
 import org.apache.spark.sql.{Column, DataFrame, Dataset, Row}
 import org.apache.spark.sql.catalyst.InternalRow

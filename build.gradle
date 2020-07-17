@@ -39,14 +39,15 @@ buildscript {
 plugins {
   id 'com.palantir.git-version' version '0.9.1'
   id 'nebula.dependency-recommender' version '9.0.2'
-  id 'nebula.dependency-lock' version '9.0.0'
 }
 
-if (JavaVersion.current() != JavaVersion.VERSION_1_8) {
-  throw new GradleException("This build must be run with Java 8")
+if (JavaVersion.current() == JavaVersion.VERSION_1_8) {
+  project.ext.jdkVersion = '8'
+} else if (JavaVersion.current() == JavaVersion.VERSION_11) {
+  project.ext.jdkVersion = '11'
+} else {
+  throw new GradleException("This build must be run with JDK 8 or 11")
 }
-
-apply from: 'jmh.gradle'
 
 dependencyRecommendations {
   propertiesFile file: file('versions.props')
@@ -65,24 +66,14 @@ allprojects {
 
 subprojects {
   apply plugin: 'nebula.dependency-recommender'
-  apply plugin: 'nebula.dependency-lock'
   apply plugin: 'java'
-
-  dependencyLock {
-    includeTransitives = true
-  }
-
-  dependencyResolutionVerifierExtension {
-    shouldFailTheBuild = false
-  }
 
   configurations {
     testCompile.extendsFrom compileOnly
 
     compileClasspath {
       // do not exclude Guava so the bundle project can reference classes.
-      // the Spark module is also excluded because this breaks the Scala compiler
-      if (project.name != 'iceberg-bundled-guava' && project.name != 'iceberg-spark' && project.name != 'iceberg-spark2') {
+      if (project.name != 'iceberg-bundled-guava') {
         exclude group: 'com.google.guava', module: 'guava'
       }
     }
@@ -128,7 +119,7 @@ subprojects {
 
   test {
     testLogging {
-      events "failed"
+      events "failed", "passed"
       exceptionFormat "full"
     }
   }
@@ -264,6 +255,9 @@ project(':iceberg-flink') {
     testCompile("org.apache.flink:flink-test-utils_2.12") {
       exclude group: "org.apache.curator", module: 'curator-test'
     }
+
+    testCompile project(path: ':iceberg-api', configuration: 'testArtifacts')
+    testCompile project(path: ':iceberg-data', configuration: 'testArtifacts')
   }
 }
 
@@ -469,6 +463,7 @@ project(':iceberg-mr') {
     compileOnly("org.apache.hadoop:hadoop-client") {
       exclude group: 'org.apache.avro', module: 'avro'
     }
+    compileOnly("org.apache.hive:hive-serde")
 
     testCompile project(path: ':iceberg-data', configuration: 'testArtifacts')
     testCompile project(path: ':iceberg-api', configuration: 'testArtifacts')
@@ -541,16 +536,7 @@ project(':iceberg-arrow') {
 }
 
 project(':iceberg-spark') {
-  apply plugin: 'scala'
-
   configurations.all {
-    // this is needed to avoid a problem with dependency locking. it was
-    // suggested as a work-around here:
-    //  https://github.com/gradle/gradle/issues/6750
-    if (name.startsWith("incrementalScalaAnalysis")) {
-      extendsFrom = []
-    }
-
     resolutionStrategy {
       // Spark 2.4.4 can only use the below datanucleus version, the versions introduced
       // by Hive 2.3.6 will meet lots of unexpected issues, so here force to use the versions
@@ -576,82 +562,6 @@ project(':iceberg-spark') {
     compileOnly("org.apache.spark:spark-hive_2.11") {
       exclude group: 'org.apache.avro', module: 'avro'
     }
-
-    testCompile "org.apache.hadoop:hadoop-hdfs::tests"
-    testCompile "org.apache.hadoop:hadoop-common::tests"
-    testCompile("org.apache.hadoop:hadoop-minicluster") {
-      exclude group: 'org.apache.avro', module: 'avro'
-    }
-    testCompile project(path: ':iceberg-hive', configuration: 'testArtifacts')
-    testCompile project(path: ':iceberg-api', configuration: 'testArtifacts')
-
-    jmh("org.apache.spark:spark-avro_2.11") {
-      exclude group: 'org.apache.avro', module: 'avro'
-    }
-  }
-
-  test {
-    // For vectorized reads
-    // Allow unsafe memory access to avoid the costly check arrow does to check if index is within bounds
-    systemProperty("arrow.enable_unsafe_memory_access", "true")
-    // Disable expensive null check for every get(index) call.
-    // Iceberg manages nullability checks itself instead of relying on arrow.
-    systemProperty("arrow.enable_null_check_for_get", "false")
-
-    // Vectorized reads need more memory
-    maxHeapSize '2500m'
-  }
-}
-
-project(':iceberg-spark2') {
-  apply plugin: 'scala'
-
-  sourceSets {
-    main {
-      scala {
-        srcDirs = ['src/main/scala', 'src/main/java']
-      }
-      java {
-        srcDirs = []
-      }
-    }
-  }
-
-  configurations.all {
-    // this is needed to avoid a problem with dependency locking. it was
-    // suggested as a work-around here:
-    //  https://github.com/gradle/gradle/issues/6750
-    if (name.startsWith("incrementalScalaAnalysis")) {
-      extendsFrom = []
-    }
-
-    resolutionStrategy {
-      // Spark 2.4.4 can only use the below datanucleus version, the versions introduced
-      // by Hive 2.3.6 will meet lots of unexpected issues, so here force to use the versions
-      // introduced by Hive 1.2.1.
-      force 'org.datanucleus:datanucleus-api-jdo:3.2.6'
-      force 'org.datanucleus:datanucleus-core:3.2.10'
-      force 'org.datanucleus:datanucleus-rdbms:3.2.9'
-    }
-  }
-
-  dependencies {
-    compile project(':iceberg-api')
-    compile project(':iceberg-common')
-    compile project(':iceberg-core')
-    compile project(':iceberg-data')
-    compile project(':iceberg-orc')
-    compile project(':iceberg-parquet')
-    compile project(':iceberg-arrow')
-    compile project(':iceberg-hive')
-    compile project(':iceberg-spark')
-
-    compileOnly "org.apache.avro:avro"
-    compileOnly("org.apache.spark:spark-hive_2.11") {
-      exclude group: 'org.apache.avro', module: 'avro'
-    }
-
-    testCompile project(path: ':iceberg-spark', configuration: 'testArtifacts')
 
     testCompile "org.apache.hadoop:hadoop-hdfs::tests"
     testCompile "org.apache.hadoop:hadoop-common::tests"
@@ -672,6 +582,141 @@ project(':iceberg-spark2') {
 
     // Vectorized reads need more memory
     maxHeapSize '2500m'
+  }
+}
+
+if (jdkVersion == '8') {
+  apply from: 'jmh.gradle'
+
+  project(':iceberg-spark2') {
+    apply plugin: 'scala' 
+    sourceSets {
+      main {
+        scala {
+          srcDirs = ['src/main/scala', 'src/main/java']
+        }
+        java {
+          srcDirs = []
+        }
+      }
+    }
+    configurations.all {
+      if (name.startsWith("incrementalScalaAnalysis")) {
+        extendsFrom = []
+      }
+
+      resolutionStrategy {
+        // Spark 2.4.4 can only use the below datanucleus version, the versions introduced
+        // by Hive 2.3.6 will meet lots of unexpected issues, so here force to use the versions
+        // introduced by Hive 1.2.1.
+        force 'org.datanucleus:datanucleus-api-jdo:3.2.6'
+        force 'org.datanucleus:datanucleus-core:3.2.10'
+        force 'org.datanucleus:datanucleus-rdbms:3.2.9'
+      }
+    }
+
+    dependencies {
+      compile project(':iceberg-api')
+      compile project(':iceberg-common')
+      compile project(':iceberg-core')
+      compile project(':iceberg-data')
+      compile project(':iceberg-orc')
+      compile project(':iceberg-parquet')
+      compile project(':iceberg-arrow')
+      compile project(':iceberg-hive')
+      compile project(':iceberg-spark')
+
+      compileOnly "org.apache.avro:avro"
+      compileOnly("org.apache.spark:spark-hive_2.11") {
+        exclude group: 'org.apache.avro', module: 'avro'
+      }
+
+      testCompile project(path: ':iceberg-spark', configuration: 'testArtifacts')
+
+      testCompile "org.apache.hadoop:hadoop-hdfs::tests"
+      testCompile "org.apache.hadoop:hadoop-common::tests"
+      testCompile("org.apache.hadoop:hadoop-minicluster") {
+        exclude group: 'org.apache.avro', module: 'avro'
+      }
+      testCompile project(path: ':iceberg-hive', configuration: 'testArtifacts')
+      testCompile project(path: ':iceberg-api', configuration: 'testArtifacts')
+    }
+
+    test {
+      // For vectorized reads
+      // Allow unsafe memory access to avoid the costly check arrow does to check if index is within bounds
+      systemProperty("arrow.enable_unsafe_memory_access", "true")
+      // Disable expensive null check for every get(index) call.
+      // Iceberg manages nullability checks itself instead of relying on arrow.
+      systemProperty("arrow.enable_null_check_for_get", "false")
+
+      // Vectorized reads need more memory
+      maxHeapSize '2500m'
+    }
+  }
+
+  // the runtime jar is a self-contained artifact for testing in a notebook
+  project(':iceberg-spark-runtime') {
+    apply plugin: 'com.github.johnrengelman.shadow'
+
+    tasks.jar.dependsOn tasks.shadowJar
+
+    configurations {
+      compile {
+        exclude group: 'org.apache.spark'
+        // included in Spark
+        exclude group: 'org.slf4j'
+        exclude group: 'org.apache.commons'
+        exclude group: 'commons-pool'
+        exclude group: 'commons-codec'
+        exclude group: 'org.xerial.snappy'
+        exclude group: 'javax.xml.bind'
+        exclude group: 'javax.annotation'
+      }
+    }
+
+    dependencies {
+      compile project(':iceberg-spark2')
+      compile 'org.apache.spark:spark-hive_2.11'
+    }
+
+    shadowJar {
+      configurations = [project.configurations.compile]
+
+      zip64 true
+
+      // include the LICENSE and NOTICE files for the shaded Jar
+      from(projectDir) {
+        include 'LICENSE'
+        include 'NOTICE'
+      }
+
+      // Relocate dependencies to avoid conflicts
+      relocate 'com.google', 'org.apache.iceberg.shaded.com.google'
+      relocate 'com.fasterxml', 'org.apache.iceberg.shaded.com.fasterxml'
+      relocate 'com.github.benmanes', 'org.apache.iceberg.shaded.com.github.benmanes'
+      relocate 'org.checkerframework', 'org.apache.iceberg.shaded.org.checkerframework'
+      relocate 'org.apache.avro', 'org.apache.iceberg.shaded.org.apache.avro'
+      relocate 'avro.shaded', 'org.apache.iceberg.shaded.org.apache.avro.shaded'
+      relocate 'com.thoughtworks.paranamer', 'org.apache.iceberg.shaded.com.thoughtworks.paranamer'
+      relocate 'org.apache.parquet', 'org.apache.iceberg.shaded.org.apache.parquet'
+      relocate 'shaded.parquet', 'org.apache.iceberg.shaded.org.apache.parquet.shaded'
+      // relocate Avro's jackson dependency to share parquet-jackson locations
+      relocate 'org.codehaus.jackson', 'org.apache.iceberg.shaded.org.apache.parquet.shaded.org.codehaus.jackson'
+      relocate 'org.apache.orc', 'org.apache.iceberg.shaded.org.apache.orc'
+      relocate 'io.airlift', 'org.apache.iceberg.shaded.io.airlift'
+      // relocate Arrow and related deps to shade Iceberg specific version
+      relocate 'io.netty.buffer', 'org.apache.iceberg.shaded.io.netty.buffer'
+      relocate 'org.apache.arrow', 'org.apache.iceberg.shaded.org.apache.arrow'
+      relocate 'com.carrotsearch', 'org.apache.iceberg.shaded.com.carrotsearch'
+      relocate 'org.threeten.extra', 'org.apache.iceberg.shaded.org.threeten.extra'
+
+      classifier null
+    }
+
+    jar {
+      classifier = 'empty'
+    }
   }
 }
 
@@ -690,6 +735,7 @@ project(':iceberg-spark3') {
     compileOnly "org.apache.avro:avro"
     compileOnly("org.apache.spark:spark-hive_2.12") {
       exclude group: 'org.apache.avro', module: 'avro'
+      exclude group: 'org.apache.arrow'
     }
 
     testCompile project(path: ':iceberg-spark', configuration: 'testArtifacts')
@@ -716,33 +762,7 @@ project(':iceberg-spark3') {
   }
 }
 
-project(':iceberg-pig') {
-  dependencies {
-    compile project(':iceberg-api')
-    compile project(':iceberg-common')
-    compile project(':iceberg-core')
-    compile project(':iceberg-parquet')
-
-    compile "org.apache.commons:commons-lang3"
-
-    compileOnly("org.apache.pig:pig") {
-      exclude group: "junit", module: "junit"
-    }
-    compileOnly("org.apache.hadoop:hadoop-mapreduce-client-core")
-    compileOnly("org.apache.hadoop:hadoop-client") {
-      exclude group: 'org.apache.avro', module: 'avro'
-    }
-
-    testCompile "org.apache.hadoop:hadoop-hdfs::tests"
-    testCompile "org.apache.hadoop:hadoop-common::tests"
-    testCompile("org.apache.hadoop:hadoop-minicluster") {
-      exclude group: 'org.apache.avro', module: 'avro'
-    }
-  }
-}
-
-// the runtime jar is a self-contained artifact for testing in a notebook
-project(':iceberg-spark-runtime') {
+project(':iceberg-spark3-runtime') {
   apply plugin: 'com.github.johnrengelman.shadow'
 
   tasks.jar.dependsOn tasks.shadowJar
@@ -762,7 +782,7 @@ project(':iceberg-spark-runtime') {
   }
 
   dependencies {
-    compile project(':iceberg-spark2')
+    compile project(':iceberg-spark3')
     compile 'org.apache.spark:spark-hive_2.11'
   }
 
@@ -795,12 +815,38 @@ project(':iceberg-spark-runtime') {
     relocate 'io.netty.buffer', 'org.apache.iceberg.shaded.io.netty.buffer'
     relocate 'org.apache.arrow', 'org.apache.iceberg.shaded.org.apache.arrow'
     relocate 'com.carrotsearch', 'org.apache.iceberg.shaded.com.carrotsearch'
+    relocate 'org.threeten.extra', 'org.apache.iceberg.shaded.org.threeten.extra'
 
     classifier null
   }
 
   jar {
     classifier = 'empty'
+  }
+}
+
+project(':iceberg-pig') {
+  dependencies {
+    compile project(':iceberg-api')
+    compile project(':iceberg-common')
+    compile project(':iceberg-core')
+    compile project(':iceberg-parquet')
+
+    compile "org.apache.commons:commons-lang3"
+
+    compileOnly("org.apache.pig:pig") {
+      exclude group: "junit", module: "junit"
+    }
+    compileOnly("org.apache.hadoop:hadoop-mapreduce-client-core")
+    compileOnly("org.apache.hadoop:hadoop-client") {
+      exclude group: 'org.apache.avro', module: 'avro'
+    }
+
+    testCompile "org.apache.hadoop:hadoop-hdfs::tests"
+    testCompile "org.apache.hadoop:hadoop-common::tests"
+    testCompile("org.apache.hadoop:hadoop-minicluster") {
+      exclude group: 'org.apache.avro', module: 'avro'
+    }
   }
 }
 
