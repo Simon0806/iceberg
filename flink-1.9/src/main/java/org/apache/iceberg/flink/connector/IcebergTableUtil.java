@@ -55,6 +55,9 @@ public class IcebergTableUtil {
 
     // Use HiveCatalog or HadoopTables to load the table
     org.apache.hadoop.conf.Configuration hadoopConf = new org.apache.hadoop.conf.Configuration();
+
+    // unset hdfs 1.0 property.
+    hadoopConf.unset("fs.hdfs.impl");
     if (identifier.contains("/")) {  // use HadoopTables
       HadoopTables hadoopTables = new HadoopTables(hadoopConf);
       Table table = hadoopTables.load(identifier /* as location */);
