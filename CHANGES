@@ -19,7 +19,7 @@
 
 Tencent changes:
 
-0.8.0-2-tencent - Unreleased
+0.9.0-1-tencent
   Unset `fs.hdfs.impl` to fix HDFS loading issue [jimmyjchen]
   Improve Flink Iceberg sink parameters [seanxiangli]
   Update deploy-tencent.gradle to fix publishing issue on bundled-guava, flink-1.9-runtime and spark-runtime [seanxiangli]
