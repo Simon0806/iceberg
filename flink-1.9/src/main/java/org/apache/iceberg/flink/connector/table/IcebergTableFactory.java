@@ -29,20 +29,30 @@ import org.apache.flink.table.descriptors.DescriptorProperties;
 import org.apache.flink.table.descriptors.Schema;
 import org.apache.flink.table.descriptors.StreamTableDescriptorValidator;
 import org.apache.flink.table.factories.StreamTableSinkFactory;
+import org.apache.flink.table.factories.StreamTableSourceFactory;
 import org.apache.flink.table.sinks.StreamTableSink;
+import org.apache.flink.table.sources.StreamTableSource;
 import org.apache.flink.types.Row;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.apache.iceberg.relocated.com.google.common.collect.Maps;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Factory for creating configured instances of {@link IcebergTableSink}.
  */
 public class IcebergTableFactory implements
-    StreamTableSinkFactory<Tuple2<Boolean, Row>> {
+    StreamTableSinkFactory<Tuple2<Boolean, Row>>, StreamTableSourceFactory<Row> {
 
-  private static final Logger LOG = LoggerFactory.getLogger(IcebergTableFactory.class);
+  @Override
+  public StreamTableSource<Row> createStreamTableSource(Map<String, String> properties) {
+    DescriptorProperties descProperties = getValidatedProperties(properties);
+
+    // Initialize the iceberg table source instance.
+    String tableIdentifier = descProperties.getString(IcebergValidator.CONNECTOR_ICEBERG_IDENTIFIER);
+    TableSchema schema = descProperties.getTableSchema(Schema.SCHEMA);
+    Configuration conf = IcebergValidator.getInstance().getConfiguration(descProperties);
+
+    return new IcebergTableSource(tableIdentifier, conf, schema);
+  }
 
   @Override
   public StreamTableSink<Tuple2<Boolean, Row>> createStreamTableSink(Map<String, String> properties) {
@@ -99,6 +109,9 @@ public class IcebergTableFactory implements
     properties.add(IcebergValidator.CONNECTOR_ICEBERG_SNAPSHOT_RETENTION_TIME);
 
     properties.add(IcebergValidator.CONNECTOR_ICEBERG_FLUSH_COMMIT_INTERVAL);
+
+    properties.add(IcebergValidator.CONNECTOR_ICEBERG_FROM_SNAPSHOT_ID);
+    properties.add(IcebergValidator.CONNECTOR_ICEBERG_MAX_SNAPSHOT_POLLING_INTERVAL_MILLIS);
 
     return properties;
   }

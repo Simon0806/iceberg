@@ -33,6 +33,7 @@ import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.data.GenericRecord;
 import org.apache.iceberg.data.Record;
+import org.apache.iceberg.hadoop.HadoopTables;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.types.Types;
 
@@ -57,17 +58,20 @@ public class WordCountData {
     // compare "word" field
     String s1 = (String) r1.getField("word");
     String s2 = (String) r2.getField("word");
-
-    int ret;
-    if (s1 != null) {
-      ret = s1.compareTo(s2);
-    } else {  // s1 is null
-      if (s2 != null) {
-        ret = s2.compareTo(s1);
-      } else {  // s1 is null and s2 is null
-        ret = 0;
-      }
+    if (s1 == null && s2 == null) {
+      return 0;
     }
+
+    if (s1 == null) {
+      return -1;
+    }
+
+    if (s2 == null) {
+      return 1;
+    }
+
+    int ret = s1.compareTo(s2);
+
     if (ret != 0) {
       return ret;
     }
@@ -89,6 +93,20 @@ public class WordCountData {
       spec = PartitionSpec.unpartitioned();
     }
     return catalog.createTable(TableIdentifier.parse(tableIdentifier), SCHEMA, spec, properties);
+  }
+
+  public static Table createTable(String tableIdentifier, boolean partitioned) {
+    return createTable(tableIdentifier, ImmutableMap.of(), partitioned);
+  }
+
+  public static Table createTable(String tableIdentifier, Map<String, String> properties, boolean partitioned) {
+    PartitionSpec spec;
+    if (partitioned) {
+      spec = PartitionSpec.builderFor(SCHEMA).identity("word").build();
+    } else {
+      spec = PartitionSpec.unpartitioned();
+    }
+    return new HadoopTables().create(SCHEMA, spec, properties, tableIdentifier);
   }
 
   public static Record createRecord(String word, int num) {

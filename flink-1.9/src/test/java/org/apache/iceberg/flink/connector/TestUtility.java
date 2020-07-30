@@ -59,6 +59,8 @@ public class TestUtility {
         .build();
     try {
       parquetAppender.addAll(rows);
+    } catch (Exception e) {
+      throw new IOException(e);
     } finally {
       parquetAppender.close();
     }

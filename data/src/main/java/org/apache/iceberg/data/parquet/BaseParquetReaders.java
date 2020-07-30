@@ -107,7 +107,7 @@ public abstract class BaseParquetReaders<T> {
     }
   }
 
-  private class ReadBuilder extends TypeWithSchemaVisitor<ParquetValueReader<?>> {
+  public class ReadBuilder extends TypeWithSchemaVisitor<ParquetValueReader<?>> {
     private final MessageType type;
     private final Map<Integer, ?> idToConstant;
 

@@ -93,4 +93,16 @@ public class IcebergConnectorConstant {
   public static final String WATERMARK_TIMESTAMP_FIELD = "watermark-timestamp-field";
   public static final String WATERMARK_TIMESTAMP_UNIT = "watermark-timestamp-unit";
   public static final String DEFAULT_WATERMARK_TIMESTAMP_UNIT = TimeUnit.MILLISECONDS.name();
+
+  // for Flink table source
+  public static final String FROM_SNAPSHOT_ID = "from-snapshot-id";
+  public static final long DEFAULT_FROM_SNAPSHOT_ID = -1;
+  public static final String MIN_SNAPSHOT_POLLING_INTERVAL_MILLIS = "min-snapshot-polling-milliseconds";
+  public static final long DEFAULT_MIN_SNAPSHOT_POLLING_INTERVAL_MILLIS = 100;
+  public static final String MAX_SNAPSHOT_POLLING_INTERVAL_MILLIS = "max-snapshot-polling-milliseconds";
+  public static final long DEFAULT_MAX_SNAPSHOT_POLLING_INTERVAL_MILLIS = 1000;
+  public static final String CASE_SENSITIVE = "case-sensitive";
+  public static final boolean DEFAULT_CASE_SENSITIVE = true;
+  public static final String AS_OF_TIME = "as-of-time";
+  public static final long DEFAULT_AS_OF_TIME = -1;
 }

@@ -25,12 +25,8 @@ import org.apache.flink.table.descriptors.ConnectorDescriptorValidator;
 import org.apache.flink.table.descriptors.DescriptorProperties;
 import org.apache.iceberg.flink.connector.IcebergConnectorConstant;
 import org.apache.iceberg.relocated.com.google.common.base.Joiner;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 class IcebergValidator extends ConnectorDescriptorValidator {
-
-  private static final Logger LOG = LoggerFactory.getLogger(IcebergValidator.class);
 
   // values for connector. keys already defined in ConnectorDescriptorValidator
   public static final String CONNECTOR_TYPE_VALUE = "iceberg";
@@ -72,6 +68,16 @@ class IcebergValidator extends ConnectorDescriptorValidator {
   public static final String CONNECTOR_ICEBERG_FLUSH_COMMIT_INTERVAL = CONNECTOR_ICEBERG_PREFIX + "." +
       IcebergConnectorConstant.FLUSH_COMMIT_INTERVAL;
 
+  // for source
+  public static final String CONNECTOR_ICEBERG_FROM_SNAPSHOT_ID = CONNECTOR_ICEBERG_PREFIX + "." +
+      IcebergConnectorConstant.FROM_SNAPSHOT_ID;
+  public static final String CONNECTOR_ICEBERG_MAX_SNAPSHOT_POLLING_INTERVAL_MILLIS = CONNECTOR_ICEBERG_PREFIX + "." +
+      IcebergConnectorConstant.MAX_SNAPSHOT_POLLING_INTERVAL_MILLIS;
+  public static final String CONNECTOR_ICEBERG_AS_OF_TIME = CONNECTOR_ICEBERG_PREFIX + "." +
+      IcebergConnectorConstant.AS_OF_TIME;
+  public static final String CONNECTOR_ICEBERG_CASE_SENSITIVE = CONNECTOR_ICEBERG_PREFIX + "." +
+      IcebergConnectorConstant.CASE_SENSITIVE;
+
   private static final IcebergValidator INSTANCE = new IcebergValidator();
 
   @Override
@@ -93,6 +99,12 @@ class IcebergValidator extends ConnectorDescriptorValidator {
     properties.validateLong(CONNECTOR_ICEBERG_SNAPSHOT_RETENTION_TIME, true, 0);
 
     properties.validateLong(CONNECTOR_ICEBERG_FLUSH_COMMIT_INTERVAL, true, 1);
+
+    // table source properties
+    properties.validateString(CONNECTOR_ICEBERG_FROM_SNAPSHOT_ID, true, 1);
+    properties.validateLong(CONNECTOR_ICEBERG_MAX_SNAPSHOT_POLLING_INTERVAL_MILLIS, true, 1000);
+    properties.validateLong(CONNECTOR_ICEBERG_AS_OF_TIME, true, 0);
+    properties.validateBoolean(CONNECTOR_ICEBERG_CASE_SENSITIVE, true);
   }
 
   public static IcebergValidator getInstance() {
@@ -179,6 +191,27 @@ class IcebergValidator extends ConnectorDescriptorValidator {
     if (properties.containsKey(CONNECTOR_ICEBERG_FLUSH_COMMIT_INTERVAL)) {
       config.setLong(IcebergConnectorConstant.FLUSH_COMMIT_INTERVAL,
           properties.getLong(CONNECTOR_ICEBERG_FLUSH_COMMIT_INTERVAL));
+    }
+
+    // table source property settings
+    if (properties.containsKey(CONNECTOR_ICEBERG_FROM_SNAPSHOT_ID)) {
+      config.setLong(IcebergConnectorConstant.FROM_SNAPSHOT_ID,
+          properties.getLong(CONNECTOR_ICEBERG_FROM_SNAPSHOT_ID));
+    }
+
+    if (properties.containsKey(CONNECTOR_ICEBERG_MAX_SNAPSHOT_POLLING_INTERVAL_MILLIS)) {
+      config.setLong(IcebergConnectorConstant.MAX_SNAPSHOT_POLLING_INTERVAL_MILLIS,
+          properties.getLong(CONNECTOR_ICEBERG_MAX_SNAPSHOT_POLLING_INTERVAL_MILLIS));
+    }
+
+    if (properties.containsKey(CONNECTOR_ICEBERG_AS_OF_TIME)) {
+      config.setLong(IcebergConnectorConstant.AS_OF_TIME,
+          properties.getLong(CONNECTOR_ICEBERG_AS_OF_TIME));
+    }
+
+    if (properties.containsKey(CONNECTOR_ICEBERG_CASE_SENSITIVE)) {
+      config.setBoolean(IcebergConnectorConstant.CASE_SENSITIVE,
+          properties.getBoolean(CONNECTOR_ICEBERG_CASE_SENSITIVE));
     }
 
     return config;

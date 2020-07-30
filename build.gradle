@@ -303,6 +303,7 @@ project(':iceberg-flink-1.9') {
     // A planner module must be on the classpath
     testCompile "org.apache.flink:flink-table-planner-blink_2.11"
     testCompile "org.apache.flink:flink-table-planner_2.11"
+    testCompile "org.apache.flink:flink-core:1.9-tq-0.1.1"
 
     testCompile "org.apache.flink:flink-avro:1.9-tq-0.1.1"
     testCompile("org.apache.flink:flink-test-utils_2.11") {
