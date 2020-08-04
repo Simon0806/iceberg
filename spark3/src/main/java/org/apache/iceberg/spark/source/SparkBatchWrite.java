@@ -39,8 +39,11 @@ import org.apache.iceberg.encryption.EncryptionManager;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.LocationProvider;
+import org.apache.iceberg.io.OutputFileFactory;
+import org.apache.iceberg.io.UnpartitionedWriter;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
 import org.apache.iceberg.relocated.com.google.common.collect.Iterables;
+import org.apache.iceberg.relocated.com.google.common.collect.Maps;
 import org.apache.iceberg.util.PropertyUtil;
 import org.apache.iceberg.util.Tasks;
 import org.apache.spark.broadcast.Broadcast;
@@ -84,6 +87,7 @@ class SparkBatchWrite implements BatchWrite {
   private final long targetFileSize;
   private final Schema writeSchema;
   private final StructType dsSchema;
+  private final Map<String, String> extraSnapshotMetadata;
 
   SparkBatchWrite(Table table, Broadcast<FileIO> io, Broadcast<EncryptionManager> encryptionManager,
                   CaseInsensitiveStringMap options, boolean overwriteDynamic, boolean overwriteByFilter,
@@ -100,6 +104,13 @@ class SparkBatchWrite implements BatchWrite {
     this.wapId = wapId;
     this.writeSchema = writeSchema;
     this.dsSchema = dsSchema;
+    this.extraSnapshotMetadata = Maps.newHashMap();
+
+    options.forEach((key, value) -> {
+      if (key.startsWith(SnapshotSummary.EXTRA_METADATA_PREFIX)) {
+        extraSnapshotMetadata.put(key.substring(SnapshotSummary.EXTRA_METADATA_PREFIX.length()), value);
+      }
+    });
 
     long tableTargetFileSize = PropertyUtil.propertyAsLong(
         table.properties(), WRITE_TARGET_FILE_SIZE_BYTES, WRITE_TARGET_FILE_SIZE_BYTES_DEFAULT);
@@ -140,6 +151,10 @@ class SparkBatchWrite implements BatchWrite {
     LOG.info("Committing {} with {} files to table {}", description, numFiles, table);
     if (applicationId != null) {
       operation.set("spark.app.id", applicationId);
+    }
+
+    if (!extraSnapshotMetadata.isEmpty()) {
+      extraSnapshotMetadata.forEach((key, value) -> operation.set(key, value));
     }
 
     if (isWapTable() && wapId != null) {
@@ -226,9 +241,15 @@ class SparkBatchWrite implements BatchWrite {
     return String.format("IcebergWrite(table=%s, format=%s)", table, format);
   }
 
-  public static class TaskCommit extends TaskResult implements WriterCommitMessage {
-    TaskCommit(TaskResult result) {
-      super(result.files());
+  public static class TaskCommit implements WriterCommitMessage {
+    private final DataFile[] taskFiles;
+
+    TaskCommit(DataFile[] taskFiles) {
+      this.taskFiles = taskFiles;
+    }
+
+    DataFile[] files() {
+      return taskFiles;
     }
   }
 
@@ -258,10 +279,12 @@ class SparkBatchWrite implements BatchWrite {
       this.dsSchema = dsSchema;
     }
 
+    @Override
     public DataWriter<InternalRow> createWriter(int partitionId, long taskId) {
       return createWriter(partitionId, taskId, 0);
     }
 
+    @Override
     public DataWriter<InternalRow> createWriter(int partitionId, long taskId, long epochId) {
       OutputFileFactory fileFactory = new OutputFileFactory(
           spec, format, locations, io.value(), encryptionManager.value(), partitionId, taskId);
@@ -270,12 +293,13 @@ class SparkBatchWrite implements BatchWrite {
         return new Unpartitioned3Writer(spec, format, appenderFactory, fileFactory, io.value(), targetFileSize);
       } else {
         return new Partitioned3Writer(
-            spec, format, appenderFactory, fileFactory, io.value(), targetFileSize, writeSchema);
+            spec, format, appenderFactory, fileFactory, io.value(), targetFileSize, writeSchema, dsSchema);
       }
     }
   }
 
-  private static class Unpartitioned3Writer extends UnpartitionedWriter implements DataWriter<InternalRow> {
+  private static class Unpartitioned3Writer extends UnpartitionedWriter<InternalRow>
+      implements DataWriter<InternalRow> {
     Unpartitioned3Writer(PartitionSpec spec, FileFormat format, SparkAppenderFactory appenderFactory,
                          OutputFileFactory fileFactory, FileIO io, long targetFileSize) {
       super(spec, format, appenderFactory, fileFactory, io, targetFileSize);
@@ -283,18 +307,23 @@ class SparkBatchWrite implements BatchWrite {
 
     @Override
     public WriterCommitMessage commit() throws IOException {
+      this.close();
+
       return new TaskCommit(complete());
     }
   }
 
-  private static class Partitioned3Writer extends PartitionedWriter implements DataWriter<InternalRow> {
+  private static class Partitioned3Writer extends SparkPartitionedWriter implements DataWriter<InternalRow> {
     Partitioned3Writer(PartitionSpec spec, FileFormat format, SparkAppenderFactory appenderFactory,
-                       OutputFileFactory fileFactory, FileIO io, long targetFileSize, Schema writeSchema) {
-      super(spec, format, appenderFactory, fileFactory, io, targetFileSize, writeSchema);
+                       OutputFileFactory fileFactory, FileIO io, long targetFileSize,
+                       Schema schema, StructType sparkSchema) {
+      super(spec, format, appenderFactory, fileFactory, io, targetFileSize, schema, sparkSchema);
     }
 
     @Override
     public WriterCommitMessage commit() throws IOException {
+      this.close();
+
       return new TaskCommit(complete());
     }
   }

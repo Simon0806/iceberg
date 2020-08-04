@@ -24,6 +24,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.TableProperties;
@@ -37,6 +38,7 @@ import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.relocated.com.google.common.base.Joiner;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
+import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableSet;
 import org.apache.iceberg.transforms.PartitionSpecVisitor;
 import org.apache.iceberg.types.Type;
@@ -52,7 +54,6 @@ import org.apache.spark.sql.connector.expressions.Transform;
 import org.apache.spark.sql.types.IntegerType;
 import org.apache.spark.sql.types.LongType;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
-import org.sparkproject.guava.collect.ImmutableMap;
 
 public class Spark3Util {
 
@@ -517,9 +518,17 @@ public class Spark3Util {
           return pred.ref().name() + " != " + sqlString(pred.literal());
         case STARTS_WITH:
           return pred.ref().name() + " LIKE '" + pred.literal() + "%'";
+        case IN:
+          return pred.ref().name() + " IN (" + sqlString(pred.literals()) + ")";
+        case NOT_IN:
+          return pred.ref().name() + " NOT IN (" + sqlString(pred.literals()) + ")";
         default:
           throw new UnsupportedOperationException("Cannot convert predicate to SQL: " + pred);
       }
+    }
+
+    private static <T> String sqlString(List<org.apache.iceberg.expressions.Literal<T>> literals) {
+      return literals.stream().map(DescribeExpressionVisitor::sqlString).collect(Collectors.joining(", "));
     }
 
     private static String sqlString(org.apache.iceberg.expressions.Literal<?> lit) {
