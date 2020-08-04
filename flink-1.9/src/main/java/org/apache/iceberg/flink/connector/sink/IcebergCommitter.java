@@ -156,22 +156,30 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
 
     snapshotRetention = config.getLong(IcebergConnectorConstant.SNAPSHOT_RETENTION_TIME,
         IcebergConnectorConstant.INFINITE_SNAPSHOT_RETENTION_TIME /* default to infinite */);
+    Preconditions.checkArgument(
+        snapshotRetention >= 0 /* valid input */ ||
+            snapshotRetention == IcebergConnectorConstant.INFINITE_SNAPSHOT_RETENTION_TIME /* default */,
+        String.format("%s must be positive or 0, or %d as default, but is %d",
+            IcebergConnectorConstant.SNAPSHOT_RETENTION_TIME, IcebergConnectorConstant.INFINITE_SNAPSHOT_RETENTION_TIME,
+            snapshotRetention));
     if (snapshotRetention == IcebergConnectorConstant.INFINITE_SNAPSHOT_RETENTION_TIME) {  // default
-      LOG.info("Snapshot retention is not set, or explicitly set to the default value as {}, " +
-          "so make it to be infinite (never drop any recovered manifest files)",
-          IcebergConnectorConstant.INFINITE_SNAPSHOT_RETENTION_TIME);
-    } else if (snapshotRetention < 0) {  // invalid input
-      throw new IllegalArgumentException(
-          String.format("Snapshot retention time must not be negative, but is %d", snapshotRetention));
-    } else {
-      LOG.info("Snapshot retention is set to {} ms", snapshotRetention);
+      LOG.info("{} is not set, or explicitly set to the default value as {}, " +
+              "so make it to be infinite (never drop any recovered manifest files)",
+          IcebergConnectorConstant.SNAPSHOT_RETENTION_TIME, IcebergConnectorConstant.INFINITE_SNAPSHOT_RETENTION_TIME);
     }
+    LOG.info("{} is set to {} ms", IcebergConnectorConstant.SNAPSHOT_RETENTION_TIME, snapshotRetention);
 
     tempManifestLocation = getTempManifestLocation(config, table.location());
-    LOG.info("Temp manifest location set to {}", tempManifestLocation);
+    Preconditions.checkArgument(!Strings.isNullOrEmpty(tempManifestLocation),
+        String.format("%s must not be null or empty", IcebergConnectorConstant.TEMP_MANIFEST_LOCATION));
+    LOG.info("{} is set to {}", IcebergConnectorConstant.TEMP_MANIFEST_LOCATION, tempManifestLocation);
 
     flushCommitInterval = config.getLong(IcebergConnectorConstant.FLUSH_COMMIT_INTERVAL,
         IcebergConnectorConstant.DEFAULT_FLUSH_COMMIT_INTERVAL);
+    Preconditions.checkArgument(flushCommitInterval > 0,
+        String.format("%s must be positive, but is %d",
+            IcebergConnectorConstant.FLUSH_COMMIT_INTERVAL, flushCommitInterval));
+    LOG.info("{} is set to {} ms", IcebergConnectorConstant.FLUSH_COMMIT_INTERVAL, flushCommitInterval);
 
     // The only final fields yielded by table inputted
     spec = table.spec();
@@ -221,7 +229,13 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
     if (!isCheckpointEnabled) {
       processingTimeService.registerTimer(currentTimestamp +
           flushCommitInterval, this);
+      LOG.info("Checkpointing is disabled, but timer is registered with {} as {} ms",
+          IcebergConnectorConstant.FLUSH_COMMIT_INTERVAL, flushCommitInterval);
     }
+
+    LOG.info("{} is set to {} ms", IcebergConnectorConstant.SNAPSHOT_RETENTION_TIME, snapshotRetention);
+    LOG.info("{} is set to {}", IcebergConnectorConstant.TEMP_MANIFEST_LOCATION, tempManifestLocation);
+
     this.tpsMeter = getRuntimeContext().getMetricGroup().addGroup(METRICS_GROUP_ICEBERG_COMMITTER)
         .meter(METRICS_ICEBERG_COMMITTER_TPS, new DropwizardMeterWrapper(new Meter()));
     // Set a histogram size to 50.

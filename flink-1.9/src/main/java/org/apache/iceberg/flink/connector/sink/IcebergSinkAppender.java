@@ -69,14 +69,21 @@ public class IcebergSinkAppender<IN> {
     // set writer's parallelism
     int writerParallelism = config.getInteger(
         IcebergConnectorConstant.WRITER_PARALLELISM, IcebergConnectorConstant.DEFAULT_WRITER_PARALLELISM);
-    if (writerParallelism == IcebergConnectorConstant.DEFAULT_WRITER_PARALLELISM ||
-        writerParallelism < 0 /* invalid input */) {
-      LOG.info("Iceberg writer parallelism not set explicitly or given an invalid input, " +
-          "so default it to the parallelism of the upstream operator");
+    Preconditions.checkArgument(
+        writerParallelism > 0 /* valid input */ ||
+            writerParallelism == IcebergConnectorConstant.DEFAULT_WRITER_PARALLELISM /* default */,
+        String.format("%s must be positive, or %d as default, but is %d",
+            IcebergConnectorConstant.WRITER_PARALLELISM, IcebergConnectorConstant.DEFAULT_WRITER_PARALLELISM,
+            writerParallelism));
+    if (writerParallelism == IcebergConnectorConstant.DEFAULT_WRITER_PARALLELISM) {  // default
       writerParallelism = dataStream.getParallelism();
+      LOG.info("{} not set, or explicitly set to the default value as {}, " +
+          "so make it to be the parallelism of the upstream operator as {}",
+          IcebergConnectorConstant.WRITER_PARALLELISM, IcebergConnectorConstant.DEFAULT_WRITER_PARALLELISM,
+          writerParallelism);
     }
-    LOG.info("Set Iceberg writer parallelism to {}", writerParallelism);
     writerStream.setParallelism(writerParallelism);
+    LOG.info("{} is finally set to {}", IcebergConnectorConstant.WRITER_PARALLELISM, writerParallelism);
 
     // append committer
     final String committerId = sinkName + "-committer";

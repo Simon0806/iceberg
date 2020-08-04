@@ -52,6 +52,7 @@ public class IcebergTableUtil {
     String identifier = config.getString(IcebergConnectorConstant.IDENTIFIER, EMPTY_STRING);
     Preconditions.checkArgument(!Strings.isNullOrEmpty(identifier),
         "Table identifier not provided by parameter key of " + IcebergConnectorConstant.IDENTIFIER);
+    LOG.info("{} is set to {}", IcebergConnectorConstant.IDENTIFIER, identifier);
 
     // Use HiveCatalog or HadoopTables to load the table
     org.apache.hadoop.conf.Configuration hadoopConf = new org.apache.hadoop.conf.Configuration();
@@ -70,13 +71,14 @@ public class IcebergTableUtil {
       Preconditions.checkArgument(!Strings.isNullOrEmpty(hiveMetastoreUris),
           "Hive Metastore uris not provided by parameter key of " + IcebergConnectorConstant.HIVE_METASTORE_URIS);
       hadoopConf.set(HiveConf.ConfVars.METASTOREURIS.varname, hiveMetastoreUris);
+      LOG.info("{} is set to {}", HiveConf.ConfVars.METASTOREURIS.varname, hiveMetastoreUris);
 
       // load table
       HiveCatalog hiveCatalog = HiveCatalogs.loadCatalog(hadoopConf);
       TableIdentifier tableIdentifier = TableIdentifier.parse(identifier);
       Table table = hiveCatalog.loadTable(tableIdentifier);
 
-      LOG.info("Table of {} loaded from HiveCatalog", table);
+      LOG.info("Table loaded by HiveCatalog with identifier as {}", table);
       return table;
     }
   }

@@ -38,6 +38,7 @@ import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.streaming.runtime.tasks.ProcessingTimeCallback;
 import org.apache.flink.streaming.runtime.tasks.ProcessingTimeService;
 import org.apache.flink.types.Row;
+import org.apache.flink.util.Preconditions;
 import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.MetricsConfig;
@@ -108,11 +109,14 @@ public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
 
     this.maxFileSize = config.getLong(IcebergConnectorConstant.MAX_FILE_SIZE_BYTES,
         IcebergConnectorConstant.DEFAULT_MAX_FILE_SIZE_BYTES);
-    LOG.info("Max file size is set to {} bytes", this.maxFileSize);
+    Preconditions.checkArgument(this.maxFileSize > 0,
+        String.format("%s must be positive, but is %d",
+            IcebergConnectorConstant.MAX_FILE_SIZE_BYTES, this.maxFileSize));
+    LOG.info("{} is set to {} bytes", IcebergConnectorConstant.MAX_FILE_SIZE_BYTES, this.maxFileSize);
 
     this.skipIncompatibleRecord = config.getBoolean(IcebergConnectorConstant.SKIP_INCOMPATIBLE_RECORD,
         IcebergConnectorConstant.DEFAULT_SKIP_INCOMPATIBLE_RECORD);
-    LOG.info("Skip incompatible record is set to {}", this.skipIncompatibleRecord);
+    LOG.info("{} is set to {}", IcebergConnectorConstant.SKIP_INCOMPATIBLE_RECORD, this.skipIncompatibleRecord);
 
     this.identifier = config.getString(IcebergConnectorConstant.IDENTIFIER, "");
 
@@ -126,13 +130,17 @@ public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
 
     this.flushCommitInterval = config.getLong(IcebergConnectorConstant.FLUSH_COMMIT_INTERVAL,
         IcebergConnectorConstant.DEFAULT_FLUSH_COMMIT_INTERVAL);
+    Preconditions.checkArgument(flushCommitInterval > 0,
+        String.format("%s must be positive, but is %d",
+            IcebergConnectorConstant.FLUSH_COMMIT_INTERVAL, flushCommitInterval));
+    LOG.info("{} is set to {} ms", IcebergConnectorConstant.FLUSH_COMMIT_INTERVAL, flushCommitInterval);
 
     LOG.info("Iceberg writer {} data file location: {}", identifier, locations.newDataLocation(""));
     LOG.info("Iceberg writer {} created with sink config", identifier);
     LOG.info("Iceberg writer {} loaded table: schema = {}\npartition spec = {}", identifier, schema, spec);
 
     // default ChainingStrategy is set to HEAD
-    // we prefer chaining to avoid the huge serialization and deserializatoin overhead.
+    // we prefer chaining to avoid the huge serialization and deserialization overhead.
     super.setChainingStrategy(ChainingStrategy.ALWAYS);
   }
 
@@ -150,7 +158,14 @@ public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
     // If we don't enable checkpoint, we will use timeservice to do commit,
     if (!isCheckpointEnabled) {
       processingTimeService.registerTimer(currentTimestamp + flushCommitInterval, this);
+      LOG.info("Checkpointing is disabled, but timer is registered with {} as {} ms",
+          IcebergConnectorConstant.FLUSH_COMMIT_INTERVAL, flushCommitInterval);
     }
+
+    LOG.info("{} is set to {}",
+        IcebergConnectorConstant.WRITER_PARALLELISM, getRuntimeContext().getNumberOfParallelSubtasks());
+    LOG.info("{} is set to {} bytes", IcebergConnectorConstant.MAX_FILE_SIZE_BYTES, maxFileSize);
+    LOG.info("{} is set to {}", IcebergConnectorConstant.SKIP_INCOMPATIBLE_RECORD, skipIncompatibleRecord);
   }
 
   @Override
