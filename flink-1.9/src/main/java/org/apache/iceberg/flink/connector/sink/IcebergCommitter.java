@@ -250,11 +250,15 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
     if (processingTimeService != null && processingTimeService.isTerminated()) {
       processingTimeService.shutdownAndAwaitPending(flushCommitInterval, TimeUnit.MICROSECONDS);
     }
-    LOG.info("Successfully close processing time service and do final commit.");
+    LOG.info("Iceberg committer {} successfully close processing time service in close()", identifier);
     // When checkpoint enable, let checkpoint to do commit.
-    flinkManifestFiles.add(createManifestFile(pendingDataFiles));
-    pendingDataFiles.clear();
-    commit();
+    if (!pendingDataFiles.isEmpty()) {
+      flinkManifestFiles.add(createManifestFile(pendingDataFiles));
+      pendingDataFiles.clear();
+      commit();
+    } else {
+      LOG.info("Iceberg committer {} has nothing to commit in close()", identifier);
+    }
   }
 
   void init() {
@@ -418,7 +422,9 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
   // For checkpoint case.
   private FlinkManifestFile createManifestFile(
       FunctionSnapshotContext context, List<FlinkDataFile> pendingDataFiles) throws Exception {
-    LOG.info("Iceberg committer {} checkpointing {} pending data files}", identifier, pendingDataFiles.size());
+    Preconditions.checkArgument(pendingDataFiles != null && !pendingDataFiles.isEmpty(),
+        "Need at least 1 pending data file (pendingDataFiles size >= 1) when calling createManifestFile()");
+    LOG.info("Iceberg committer {} checkpointing {} pending data files", identifier, pendingDataFiles.size());
     String result = "succeeded";
     final long start = System.currentTimeMillis();
     long id = context.getCheckpointId();
