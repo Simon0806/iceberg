@@ -57,7 +57,7 @@ allprojects {
   group = "org.apache.iceberg"
   version = getProjectVersion()
   repositories {
-    maven { url "http://mirrors.tencent.com/repository/maven/tianqiong-releases" }  // Tencent's Flink 1.9-tq-?
+    maven { url "http://mirrors.tencent.com/repository/maven/tianqiong-releases" }
     maven { url "http://palantir.bintray.com/releases" }
     mavenCentral()
     mavenLocal()
@@ -303,6 +303,11 @@ project(':iceberg-flink') {
 }
 
 project(':iceberg-flink-1.9') {
+  repositories {
+    maven { url "http://mirrors.tencent.com/repository/maven/tianqiong-releases" }
+    maven { url "http://palantir.bintray.com/releases" }
+    mavenCentral()
+  }
   apply plugin: 'com.commercehub.gradle.plugin.avro'
   dependencies {
     compile project(':iceberg-data')
@@ -374,6 +379,11 @@ project(':iceberg-flink-1.9') {
 }
 
 project(':iceberg-flink-1.9-runtime') {
+  repositories {
+    maven { url "http://mirrors.tencent.com/repository/maven/tianqiong-releases" }
+    maven { url "http://palantir.bintray.com/releases" }
+    mavenCentral()
+  }
   apply plugin: 'com.github.johnrengelman.shadow'
 
   tasks.jar.dependsOn tasks.shadowJar
@@ -792,6 +802,22 @@ if (jdkVersion == '8') {
 }
 
 project(':iceberg-spark3') {
+  repositories {
+    maven { url "http://mirrors.tencent.com/repository/maven/tencent_spark_release" }
+    maven { url "http://maven.oa.com/nexus/content/groups/public/" }
+    mavenCentral()
+  }
+  apply plugin: 'scala'
+  sourceSets {
+    main {
+      scala {
+        srcDirs = ['src/main/scala', 'src/main/java']
+      }
+      java {
+        srcDirs = []
+      }
+    }
+  }
   dependencies {
     compile project(':iceberg-api')
     compile project(':iceberg-common')
@@ -804,7 +830,7 @@ project(':iceberg-spark3') {
     compile project(':iceberg-spark')
 
     compileOnly "org.apache.avro:avro"
-    compileOnly("org.apache.spark:spark-hive_2.12") {
+    compileOnly("com.tencent.spark:spark-hive_2.12") {
       exclude group: 'org.apache.avro', module: 'avro'
       exclude group: 'org.apache.arrow'
     }

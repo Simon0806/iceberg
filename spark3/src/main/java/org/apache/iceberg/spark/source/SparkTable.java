@@ -23,29 +23,33 @@ import java.util.Map;
 import java.util.Set;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
-import org.apache.iceberg.exceptions.ValidationException;
-import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableSet;
+import org.apache.iceberg.relocated.com.google.common.collect.Maps;
 import org.apache.iceberg.relocated.com.google.common.collect.Sets;
 import org.apache.iceberg.spark.Spark3Util;
-import org.apache.iceberg.spark.SparkFilters;
 import org.apache.iceberg.spark.SparkSchemaUtil;
+import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.catalyst.expressions.Expression;
+import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan;
 import org.apache.spark.sql.connector.catalog.SupportsDelete;
+import org.apache.spark.sql.connector.catalog.SupportsMerge;
 import org.apache.spark.sql.connector.catalog.SupportsRead;
 import org.apache.spark.sql.connector.catalog.SupportsWrite;
 import org.apache.spark.sql.connector.catalog.TableCapability;
 import org.apache.spark.sql.connector.expressions.Transform;
 import org.apache.spark.sql.connector.read.ScanBuilder;
 import org.apache.spark.sql.connector.write.LogicalWriteInfo;
+import org.apache.spark.sql.connector.write.SupportsUpdate;
 import org.apache.spark.sql.connector.write.WriteBuilder;
-import org.apache.spark.sql.sources.Filter;
+import org.apache.spark.sql.functions;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
 
 public class SparkTable implements org.apache.spark.sql.connector.catalog.Table,
-    SupportsRead, SupportsWrite, SupportsDelete {
+    SupportsRead, SupportsWrite, SupportsDelete, SupportsUpdate, SupportsMerge {
 
   private static final Set<String> RESERVED_PROPERTIES = Sets.newHashSet("provider", "format", "current-snapshot-id");
   private static final Set<TableCapability> CAPABILITIES = ImmutableSet.of(
@@ -59,6 +63,9 @@ public class SparkTable implements org.apache.spark.sql.connector.catalog.Table,
   private final StructType requestedSchema;
   private StructType lazyTableSchema = null;
   private SparkSession lazySpark = null;
+  private DelegatableDeletesSupport3 deletesSupport = null;
+  private DelegatableUpdatesSupport3 updatesSupport = null;
+  private final Boolean caseSensitive;
 
   public SparkTable(Table icebergTable) {
     this(icebergTable, null);
@@ -72,9 +79,10 @@ public class SparkTable implements org.apache.spark.sql.connector.catalog.Table,
       // convert the requested schema to throw an exception if any requested fields are unknown
       SparkSchemaUtil.convert(icebergTable.schema(), requestedSchema);
     }
+    caseSensitive = Boolean.parseBoolean(sparkSession().conf().get("spark.sql.caseSensitive"));
   }
 
-  private SparkSession sparkSession() {
+  public SparkSession sparkSession() {
     if (lazySpark == null) {
       this.lazySpark = SparkSession.active();
     }
@@ -84,6 +92,14 @@ public class SparkTable implements org.apache.spark.sql.connector.catalog.Table,
 
   public Table table() {
     return icebergTable;
+  }
+
+  private LogicalPlan plan(String alias) {
+    if (alias == null || alias.equals("")) {
+      return sparkSession().table(icebergTable.toString()).queryExecution().analyzed();
+    } else {
+      return sparkSession().table(icebergTable.toString()).as(alias).queryExecution().analyzed();
+    }
   }
 
   @Override
@@ -150,21 +166,119 @@ public class SparkTable implements org.apache.spark.sql.connector.catalog.Table,
   }
 
   @Override
-  public void deleteWhere(Filter[] filters) {
-    Expression deleteExpr = SparkFilters.convert(filters);
+  public String toString() {
+    return icebergTable.toString();
+  }
 
-    try {
-      icebergTable.newDelete()
-          .set("spark.app.id", sparkSession().sparkContext().applicationId())
-          .deleteFromRowFilter(deleteExpr)
-          .commit();
-    } catch (ValidationException e) {
-      throw new IllegalArgumentException("Failed to cleanly delete data files matching: " + deleteExpr, e);
+  private DelegatableUpdatesSupport3 getUpdateSupport() {
+    if (updatesSupport == null) {
+      updatesSupport = new DelegatableUpdatesSupport3(icebergTable, plan(null), sparkSession(), caseSensitive);
     }
+    return updatesSupport;
+  }
+
+  private DelegatableDeletesSupport3 getDeletesSupport() {
+    if (deletesSupport == null) {
+      deletesSupport = new DelegatableDeletesSupport3(icebergTable, plan(null), sparkSession(), caseSensitive);
+    }
+    return deletesSupport;
   }
 
   @Override
-  public String toString() {
-    return icebergTable.toString();
+  public void mergeIntoWithTable(org.apache.spark.sql.connector.catalog.Table table,
+                                 String targetAlias,
+                                 String sourceTableName,
+                                 String sourceAlias,
+                                 Expression mergeCondition,
+                                 Map<String, Expression> matchedActions,
+                                 Map<String, Expression> notMatchedActions,
+                                 Expression deleteExpression,
+                                 Expression updateExpression,
+                                 Expression insertExpression) {
+    Dataset<Row> sourceDF = sparkSession().table(sourceTableName);
+    if (sourceAlias != null && !sourceAlias.isEmpty()) {
+      sourceDF = sourceDF.as(sourceAlias);
+    }
+
+    doMerge(plan(targetAlias), sourceDF, mergeCondition, matchedActions, notMatchedActions,
+        deleteExpression, updateExpression, insertExpression);
+  }
+
+  @Override
+  public void mergeIntoWithQuery(String targetAlias,
+                                 String query,
+                                 String sourceAlias,
+                                 Expression mergeCondition,
+                                 Map<String, Expression> matchedActions,
+                                 Map<String, Expression> notMatchedActions,
+                                 Expression deleteExpression,
+                                 Expression updateExpression,
+                                 Expression insertExpression) {
+    Dataset<Row> sourceDF = sparkSession().sql(query);
+    if (sourceAlias == null || sourceAlias.equals("")) {
+      sourceDF = sourceDF.as(sourceAlias);
+    }
+
+    doMerge(plan(targetAlias), sourceDF, mergeCondition, matchedActions, notMatchedActions,
+        deleteExpression, updateExpression, insertExpression);
+  }
+
+  @Override
+  public void deleteWhere(Expression filter) {
+    getDeletesSupport().deleteWhere(filter);
+  }
+
+  @Override
+  public void update(Map<String, Expression> assignments, Expression filter) {
+    getUpdateSupport().updateTable(assignments, filter);
+  }
+
+  private Expression toUnresolvedExpression(Expression expr) {
+    return functions.expr(expr.sql()).expr();
+  }
+
+  private Map<String, Expression> toUnresolvedAction(Map<String, Expression> actions) {
+    Map<String, Expression> act = Maps.newHashMap();
+    for (Map.Entry<String, Expression> entry : actions.entrySet()) {
+      act.put(entry.getKey(), toUnresolvedExpression(entry.getValue()));
+    }
+
+    return act;
+  }
+
+  private void doMerge(LogicalPlan target,
+                       Dataset<Row> sourceDF,
+                       Expression mergeCondition,
+                       Map<String, Expression> matchedActions,
+                       Map<String, Expression> notMatchedActions,
+                       Expression deleteExpression,
+                       Expression updateExpression,
+                       Expression insertExpression) {
+    IcebergMergeBuilder3 builder = IcebergMergeBuilder3.apply(icebergTable,
+        sparkSession(),
+        target,
+        caseSensitive,
+        sourceDF
+    );
+
+    builder = builder.onCondition(toUnresolvedExpression(mergeCondition));
+
+    IcebergMergeMatchedActionBuilder updateActionBuilder = updateExpression == null ?
+        builder.whenMatched() : builder.whenMatched(toUnresolvedExpression(updateExpression));
+
+    builder = updateActionBuilder.update(toUnresolvedAction(matchedActions));
+
+    if (deleteExpression != null) {
+      IcebergMergeMatchedActionBuilder deleteActionBuilder = builder
+          .whenMatched(toUnresolvedExpression(deleteExpression));
+      builder = deleteActionBuilder.delete();
+    }
+
+    IcebergMergeNotMatchedActionBuilder insertActionBuilder = insertExpression == null ?
+        builder.whenNotMatched() : builder.whenNotMatched(toUnresolvedExpression(insertExpression));
+
+    builder = insertActionBuilder.insert(toUnresolvedAction(notMatchedActions));
+
+    builder.execute();
   }
 }

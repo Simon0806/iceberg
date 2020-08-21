@@ -19,19 +19,24 @@
 
 package org.apache.iceberg.spark.source
 
-import org.apache.iceberg.FindFiles
+import org.apache.iceberg.{FindFiles, Table}
 import org.apache.iceberg.exceptions.ValidationException
 import org.apache.iceberg.expressions.Expressions
 import org.apache.iceberg.spark.SparkFilters
+import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions.Expression
-import org.apache.spark.sql.iceberg.AnalysisHelper
+import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
+import org.apache.spark.sql.iceberg.AnalysisHelper3
 import org.apache.spark.sql.internal.SQLConf
 import scala.collection.JavaConverters._
 
-class DelegatableDeletesSupport(table: SparkIcebergTable) extends AnalysisHelper {
-
+class DelegatableDeletesSupport3(table: Table,
+                                 plan: LogicalPlan,
+                                 sparkSession: SparkSession,
+                                 caseSensitive: Boolean
+                               ) extends AnalysisHelper3 {
   def deleteWhere(condition: Expression): Unit = {
-    val resolveCondition = resolve(table.sparkSession(), table.plan(), condition)
+    val resolveCondition = resolve(sparkSession, plan, condition)
     val expression = if (condition.toString() == "true") {
       Expressions.alwaysTrue()
     } else {
@@ -40,24 +45,25 @@ class DelegatableDeletesSupport(table: SparkIcebergTable) extends AnalysisHelper
 
     try {
       // try to delete file at first
-      table.getIcebergTable.newDelete().deleteFromRowFilter(expression).commit()
+      table.newDelete().deleteFromRowFilter(expression).commit()
     } catch {
       case _: ValidationException =>
-        val txn = table.getIcebergTable.newTransaction()
+        val txn = table.newTransaction()
         //Step 1: delete files that match filters
-        val filesToDelete = FindFiles.in(table.getIcebergTable).withRecordsMatching(expression)
+        val filesToDelete = FindFiles.in(table).withRecordsMatching(expression)
           .collect().asScala.toList
 
         //Step 2: generate updated files
-        val updatedFiles = StagingTableHelper(table).generateUpdatedFiles(filesToDelete, resolveCondition)
+        val updatedFiles = StagingTableHelper3(table, sparkSession, plan, caseSensitive)
+          .generateUpdatedFiles(filesToDelete, resolveCondition)
 
-        // Step 3: overwrite
+        //Step 3: overwrite
         if (updatedFiles.nonEmpty) {
           val overwrite = txn.newOverwrite()
           filesToDelete.map(overwrite.deleteFile)
           updatedFiles.map(overwrite.addFile)
           overwrite
-            .validateNoConflictingAppends(table.getIcebergTable.currentSnapshot().snapshotId(), expression)
+            .validateNoConflictingAppends(table.currentSnapshot().snapshotId(), expression)
             .commit()
         } else {
           val deleting = txn.newDelete()
@@ -68,5 +74,5 @@ class DelegatableDeletesSupport(table: SparkIcebergTable) extends AnalysisHelper
     }
   }
 
-  override def conf: SQLConf = table.sparkSession().sessionState.conf
+  override def conf: SQLConf = sparkSession.sessionState.conf
 }

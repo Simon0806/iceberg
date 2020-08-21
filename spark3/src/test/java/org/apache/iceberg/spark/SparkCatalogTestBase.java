@@ -21,13 +21,16 @@ package org.apache.iceberg.spark;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.hadoop.HadoopCatalog;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
+import org.apache.iceberg.spark.source.SimpleRecord;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -102,5 +105,11 @@ public abstract class SparkCatalogTestBase extends SparkTestBase {
 
   protected String tableName(String name) {
     return (catalogName.equals("spark_catalog") ? "" : catalogName + ".") + "default." + name;
+  }
+
+  protected void verifyData(String tableIdentity, List<SimpleRecord> expected) {
+    List<String> actual = spark.sql("SELECT data FROM " + tableIdentity + " ORDER BY id")
+        .collectAsList().stream().map(row -> row.getString(0)).collect(Collectors.toList());
+    Assert.assertEquals(expected.stream().map(SimpleRecord::getData).collect(Collectors.toList()), actual);
   }
 }

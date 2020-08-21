@@ -268,10 +268,10 @@ class SparkBatchScan implements Scan, Batch, SupportsReportStatistics {
         table, expectedSchema.asStruct(), filterExpressions, caseSensitive);
   }
 
-  private static class ReaderFactory implements PartitionReaderFactory {
+  public static class ReaderFactory implements PartitionReaderFactory {
     private final int batchSize;
 
-    private ReaderFactory(int batchSize) {
+    ReaderFactory(int batchSize) {
       this.batchSize = batchSize;
     }
 
@@ -313,7 +313,7 @@ class SparkBatchScan implements Scan, Batch, SupportsReportStatistics {
     }
   }
 
-  private static class ReadTask implements InputPartition, Serializable {
+  public static class ReadTask implements InputPartition, Serializable {
     private final CombinedScanTask task;
     private final String tableSchemaString;
     private final String expectedSchemaString;

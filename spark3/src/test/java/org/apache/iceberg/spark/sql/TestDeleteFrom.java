@@ -20,11 +20,9 @@
 package org.apache.iceberg.spark.sql;
 
 import java.util.Map;
-import org.apache.iceberg.AssertHelpers;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
 import org.apache.iceberg.spark.SparkCatalogTestBase;
 import org.junit.After;
-import org.junit.Assert;
 import org.junit.Test;
 
 public class TestDeleteFrom extends SparkCatalogTestBase {
@@ -50,14 +48,11 @@ public class TestDeleteFrom extends SparkCatalogTestBase {
           ImmutableList.of(row(1L, "a"), row(2L, "b"), row(3L, "c")),
           sql("SELECT * FROM %s ORDER BY id", tableName));
 
-      AssertHelpers.assertThrows("Should not delete when not all rows of a file match the filter",
-          IllegalArgumentException.class, "Failed to cleanly delete data files",
-          () -> sql("DELETE FROM %s WHERE id < 2", tableName));
+      sql("DELETE FROM %s WHERE id < 2", tableName);
 
-      sql("DELETE FROM %s WHERE id < 4", tableName);
-
-      Assert.assertEquals("Should have no rows after successful delete",
-          0L, scalarSql("SELECT count(1) FROM %s", tableName));
+      assertEquals("Should have expected rows",
+          ImmutableList.of(row(2L, "b"), row(3L, "c")),
+          sql("SELECT * FROM %s ORDER BY id", tableName));
 
     } finally {
       spark.conf().set("spark.sql.shuffle.partitions", originalParallelism);
@@ -77,10 +72,6 @@ public class TestDeleteFrom extends SparkCatalogTestBase {
       assertEquals("Should have 3 rows in 2 partitions",
           ImmutableList.of(row(1L, "a"), row(2L, "b"), row(3L, "c")),
           sql("SELECT * FROM %s ORDER BY id", tableName));
-
-      AssertHelpers.assertThrows("Should not delete when not all rows of a file match the filter",
-          IllegalArgumentException.class, "Failed to cleanly delete data files",
-          () -> sql("DELETE FROM %s WHERE id > 2", tableName));
 
       sql("DELETE FROM %s WHERE id < 2", tableName);
 
