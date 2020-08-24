@@ -345,6 +345,8 @@ project(':iceberg-flink-1.9') {
     compile("org.apache.flink:flink-metrics-dropwizard:1.9-tq-0.1.1")
 
     testCompile project(path: ':iceberg-hive', configuration: 'testArtifacts')
+    testCompile project(path: ':iceberg-data', configuration: 'testArtifacts')
+    testCompile project(path: ':iceberg-api', configuration: 'testArtifacts')
 
     // A planner module must be on the classpath
     testCompile "org.apache.flink:flink-table-planner-blink_2.11"

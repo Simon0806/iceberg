@@ -21,9 +21,11 @@ package org.apache.iceberg.flink.connector;
 
 import org.apache.flink.table.api.TableSchema;
 import org.apache.flink.table.types.FieldsDataType;
+import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.types.Type;
+import org.apache.iceberg.types.TypeUtil;
 
 public class FlinkSchemaUtil {
 
@@ -41,4 +43,16 @@ public class FlinkSchemaUtil {
 
     return new Schema(converted.asStructType().fields());
   }
+
+  /**
+   * Convert a {@link Type} to a {@link LogicalType Flink type}.
+   *
+   * @param type a Type
+   * @return the equivalent Flink type
+   * @throws IllegalArgumentException if the type cannot be converted to Flink
+   */
+  public static LogicalType convert(Type type) {
+    return TypeUtil.visit(type, new TypeToFlinkType());
+  }
+
 }

@@ -55,7 +55,8 @@ public class TestUtility {
     Configuration conf = new Configuration();
     FileAppender<Row> parquetAppender = Parquet.write(fromPath(path, conf))
         .schema(schema)
-        .createWriterFunc(FlinkParquetWriters::buildWriter)
+        .createWriterFunc(msgType -> FlinkParquetWriters.buildWriter(
+            FlinkSchemaUtil.convert(schema.asStruct()), msgType))
         .build();
     try {
       parquetAppender.addAll(rows);

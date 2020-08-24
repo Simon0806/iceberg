@@ -168,6 +168,18 @@ public class ParquetValueReaders {
     }
   }
 
+  public static class ByteArrayReader extends ParquetValueReaders.PrimitiveReader<byte[]> {
+    public ByteArrayReader(ColumnDescriptor desc) {
+      super(desc);
+    }
+
+    @Override
+    public byte[] read(byte[] ignored) {
+      return column.nextBinary().getBytes();
+    }
+  }
+
+
   public abstract static class PrimitiveReader<T> implements ParquetValueReader<T> {
     private final ColumnDescriptor desc;
     @SuppressWarnings("checkstyle:VisibilityModifier")

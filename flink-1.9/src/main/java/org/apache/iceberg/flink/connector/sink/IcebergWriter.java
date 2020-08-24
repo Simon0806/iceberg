@@ -48,6 +48,7 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.avro.Avro;
 import org.apache.iceberg.data.avro.DataWriter;
 import org.apache.iceberg.exceptions.RuntimeIOException;
+import org.apache.iceberg.flink.connector.FlinkSchemaUtil;
 import org.apache.iceberg.flink.connector.IcebergConnectorConstant;
 import org.apache.iceberg.flink.connector.data.FlinkParquetWriters;
 import org.apache.iceberg.io.FileAppender;
@@ -348,10 +349,11 @@ public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
       switch (format) {
         case PARQUET:
           return Parquet.write(file)
-              .createWriterFunc(FlinkParquetWriters::buildWriter)
               .setAll(tableProps)
               .metricsConfig(metricsConfig)
               .schema(schema)
+              .createWriterFunc(msgType -> FlinkParquetWriters.buildWriter(
+                  FlinkSchemaUtil.convert(schema.asStruct()), msgType))
               .overwrite()
               .build();
 
