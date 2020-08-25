@@ -20,8 +20,10 @@
 package org.apache.iceberg.flink.connector.data;
 
 import java.math.BigDecimal;
-import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
@@ -48,7 +50,7 @@ public class FlinkOrcReaders {
     return StringReader.INSTANCE;
   }
 
-  static OrcValueReader<Integer> dates() {
+  static OrcValueReader<LocalDate> dates() {
     return DateReader.INSTANCE;
   }
 
@@ -60,15 +62,15 @@ public class FlinkOrcReaders {
     }
   }
 
-  static OrcValueReader<Integer> times() {
+  static OrcValueReader<LocalTime> times() {
     return TimeReader.INSTANCE;
   }
 
-  static OrcValueReader<Timestamp> timestamps() {
+  static OrcValueReader<LocalDateTime> timestamps() {
     return TimestampReader.INSTANCE;
   }
 
-  static OrcValueReader<Timestamp> timestampTzs() {
+  static OrcValueReader<Instant> timestampTzs() {
     return TimestampTzReader.INSTANCE;
   }
 
@@ -92,16 +94,17 @@ public class FlinkOrcReaders {
     @Override
     public String nonNullRead(ColumnVector vector, int row) {
       BytesColumnVector bytesVector = (BytesColumnVector) vector;
-      return new String(bytesVector.vector[row]);
+      return new String(bytesVector.vector[row], bytesVector.start[row], bytesVector.length[row]);
     }
   }
 
-  private static class DateReader implements OrcValueReader<Integer> {
+  private static class DateReader implements OrcValueReader<LocalDate> {
     private static final DateReader INSTANCE = new DateReader();
 
     @Override
-    public Integer nonNullRead(ColumnVector vector, int row) {
-      return (int) ((LongColumnVector) vector).vector[row];
+    public LocalDate nonNullRead(ColumnVector vector, int row) {
+      long epochDay = ((LongColumnVector) vector).vector[row];
+      return LocalDate.ofEpochDay(epochDay);
     }
   }
 
@@ -117,7 +120,7 @@ public class FlinkOrcReaders {
     @Override
     public BigDecimal nonNullRead(ColumnVector vector, int row) {
       HiveDecimalWritable value = ((DecimalColumnVector) vector).vector[row];
-      return BigDecimal.valueOf(value.serialize64(value.scale()), value.scale());
+      return BigDecimal.valueOf(value.serialize64(scale), scale);
     }
   }
 
@@ -132,45 +135,45 @@ public class FlinkOrcReaders {
 
     @Override
     public BigDecimal nonNullRead(ColumnVector vector, int row) {
-      return ((DecimalColumnVector) vector).vector[row].getHiveDecimal().bigDecimalValue();
+      BigDecimal value = ((DecimalColumnVector) vector).vector[row].getHiveDecimal().bigDecimalValue();
+      return value.setScale(scale, BigDecimal.ROUND_UNNECESSARY);
     }
   }
 
-  private static class TimeReader implements OrcValueReader<Integer> {
+  private static class TimeReader implements OrcValueReader<LocalTime> {
     private static final TimeReader INSTANCE = new TimeReader();
 
     @Override
-    public Integer nonNullRead(ColumnVector vector, int row) {
+    public LocalTime nonNullRead(ColumnVector vector, int row) {
       long micros = ((LongColumnVector) vector).vector[row];
       // Flink only support time mills, just erase micros.
-      return (int) (micros / 1000);
+      return LocalTime.ofNanoOfDay(micros * 1_000);
     }
   }
 
-  private static class TimestampReader implements OrcValueReader<Timestamp> {
+  private static class TimestampReader implements OrcValueReader<LocalDateTime> {
     private static final TimestampReader INSTANCE = new TimestampReader();
 
     @Override
-    public Timestamp nonNullRead(ColumnVector vector, int row) {
+    public LocalDateTime nonNullRead(ColumnVector vector, int row) {
       TimestampColumnVector tcv = (TimestampColumnVector) vector;
       Instant localDate = Instant
           .ofEpochSecond(Math.floorDiv(tcv.time[row], 1_000), tcv.nanos[row])
           .atOffset(ZoneOffset.UTC)
           .toInstant();
-      return Timestamp.from(localDate);
+      return LocalDateTime.ofInstant(localDate, ZoneOffset.UTC);
     }
   }
 
-  private static class TimestampTzReader implements OrcValueReader<Timestamp> {
+  private static class TimestampTzReader implements OrcValueReader<Instant> {
     private static final TimestampTzReader INSTANCE = new TimestampTzReader();
 
     @Override
-    public Timestamp nonNullRead(ColumnVector vector, int row) {
+    public Instant nonNullRead(ColumnVector vector, int row) {
       TimestampColumnVector tcv = (TimestampColumnVector) vector;
-      Instant instant = Instant.ofEpochSecond(Math.floorDiv(tcv.time[row], 1_000), tcv.nanos[row])
+      return Instant.ofEpochSecond(Math.floorDiv(tcv.time[row], 1_000), tcv.nanos[row])
           .atOffset(ZoneOffset.UTC)
           .toInstant();
-      return Timestamp.from(instant);
     }
   }
 
@@ -214,7 +217,7 @@ public class FlinkOrcReaders {
       int offset = (int) mapVector.offsets[row];
       long length = mapVector.lengths[row];
 
-      Map<K, V> map = Maps.newHashMap();
+      Map<K, V> map = Maps.newLinkedHashMap();
       for (int c = 0; c < length; c++) {
         K key = keyReader.read(mapVector.keys, offset + c);
         V value = valueReader.read(mapVector.values, offset + c);

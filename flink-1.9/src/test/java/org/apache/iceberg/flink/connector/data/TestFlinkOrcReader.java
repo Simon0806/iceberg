@@ -22,15 +22,13 @@ package org.apache.iceberg.flink.connector.data;
 import java.io.File;
 import java.io.IOException;
 import java.util.Iterator;
-import org.apache.flink.table.types.logical.RowType;
 import org.apache.flink.types.Row;
 import org.apache.iceberg.Files;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.data.DataTest;
+import org.apache.iceberg.data.RandomGenericData;
 import org.apache.iceberg.data.Record;
-import org.apache.iceberg.data.orc.GenericOrcReader;
-import org.apache.iceberg.flink.connector.FlinkSchemaUtil;
-import org.apache.iceberg.flink.connector.RandomData;
+import org.apache.iceberg.data.orc.GenericOrcWriter;
 import org.apache.iceberg.flink.connector.TestHelpers;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.FileAppender;
@@ -39,40 +37,41 @@ import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.rules.TemporaryFolder;
 
-public class TestFlinkOrcWriter extends DataTest {
+public class TestFlinkOrcReader extends DataTest {
+
   private static final int NUM_RECORDS = 100;
 
   @Rule
   public TemporaryFolder temp = new TemporaryFolder();
 
-  private void writeAndValidateInternal(Iterable<Row> iter, Schema schema) throws IOException {
-    File testFile = temp.newFile();
-    Assert.assertTrue("Delete should succeed", testFile.delete());
-    RowType rowType = FlinkSchemaUtil.convert(schema);
-    try (FileAppender<Row> writer = ORC.write(Files.localOutput(testFile))
+  protected void writeAndValidateInternal(Iterable<Record> iterable, Schema schema) throws IOException {
+    File recordsFile = temp.newFile();
+    Assert.assertTrue("Delete should succeed", recordsFile.delete());
+
+    try (FileAppender<Record> writer = ORC.write(Files.localOutput(recordsFile))
         .schema(schema)
-        .createWriterFunc((iSchema, typeDesc) -> FlinkOrcWriter.buildWriter(rowType, iSchema))
+        .createWriterFunc(GenericOrcWriter::buildWriter)
         .build()) {
-      writer.addAll(iter);
+      writer.addAll(iterable);
     }
 
-    try (CloseableIterable<Record> reader = ORC.read(Files.localInput(testFile))
+    try (CloseableIterable<Row> reader = ORC.read(Files.localInput(recordsFile))
         .project(schema)
-        .createReaderFunc(msgType -> GenericOrcReader
-            .buildReader(schema, msgType))
+        .createReaderFunc(type -> FlinkOrcReader.buildReader(schema, type))
         .build()) {
-      Iterator<Row> expected = iter.iterator();
-      Iterator<Record> actual = reader.iterator();
+      Iterator<Record> expected = iterable.iterator();
+      Iterator<Row> rows = reader.iterator();
+
       for (int i = 0; i < NUM_RECORDS; i += 1) {
-        Assert.assertTrue("Should have expected number of rows", actual.hasNext());
-        TestHelpers.assertRow(schema.asStruct(), actual.next(), expected.next());
+        Assert.assertTrue("Should have expected number of rows", rows.hasNext());
+        TestHelpers.assertRow(schema.asStruct(), expected.next(), rows.next());
       }
-      Assert.assertFalse("Should not have extra rows", actual.hasNext());
+      Assert.assertFalse("Should not have extra rows", rows.hasNext());
     }
   }
 
   @Override
   protected void writeAndValidate(Schema schema) throws IOException {
-    writeAndValidateInternal(RandomData.generate(schema, NUM_RECORDS, 19981), schema);
+    writeAndValidateInternal(RandomGenericData.generate(schema, NUM_RECORDS, 19981), schema);
   }
 }

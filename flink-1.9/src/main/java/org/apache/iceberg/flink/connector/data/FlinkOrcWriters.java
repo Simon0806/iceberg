@@ -20,9 +20,10 @@
 package org.apache.iceberg.flink.connector.data;
 
 import java.math.BigDecimal;
-import java.sql.Timestamp;
 import java.time.Instant;
-import java.time.OffsetDateTime;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
@@ -115,7 +116,7 @@ public class FlinkOrcWriters {
       cv.keys.ensureSize(cv.childCount, true);
       cv.values.ensureSize(cv.childCount, true);
       // Add each element
-      for (int e = 0; e < cv.lengths[rowId]; ++e) {
+      for (int e = 0; e < cv.lengths[rowId]; e += 1) {
         int pos = (int) (e + cv.offsets[rowId]);
         keyWriter.write(pos, (K) keyArray[e], cv.keys);
         valueWriter.write(pos, (V) valueArray[e], cv.values);
@@ -193,72 +194,71 @@ public class FlinkOrcWriters {
     }
   }
 
-  private static class DateWriter implements OrcValueWriter<Integer> {
+  private static class DateWriter implements OrcValueWriter<LocalDate> {
     private static final DateWriter INSTANCE = new DateWriter();
 
     @Override
     public Class<?> getJavaClass() {
-      return Integer.class;
+      return LocalDate.class;
     }
 
     @Override
-    public void nonNullWrite(int rowId, Integer data, ColumnVector output) {
-      ((LongColumnVector) output).vector[rowId] = data;
+    public void nonNullWrite(int rowId, LocalDate data, ColumnVector output) {
+      ((LongColumnVector) output).vector[rowId] = data.toEpochDay();
     }
   }
 
-  private static class TimeWriter implements OrcValueWriter<Integer> {
+  private static class TimeWriter implements OrcValueWriter<LocalTime> {
     private static final TimeWriter INSTANCE = new TimeWriter();
 
     @Override
     public Class<?> getJavaClass() {
-      return Integer.class;
+      return LocalTime.class;
     }
 
     @Override
-    public void nonNullWrite(int rowId, Integer millis, ColumnVector output) {
+    public void nonNullWrite(int rowId, LocalTime time, ColumnVector output) {
       // The time in flink is in millisecond, while the standard time in iceberg is microsecond.
       // So we need to transform it to microsecond.
-      ((LongColumnVector) output).vector[rowId] = millis * 1000;
+      ((LongColumnVector) output).vector[rowId] = time.toNanoOfDay() / 1_000;
     }
   }
 
-  private static class TimestampWriter implements OrcValueWriter<Timestamp> {
+  private static class TimestampWriter implements OrcValueWriter<LocalDateTime> {
     private static final TimestampWriter INSTANCE = new TimestampWriter();
 
     @Override
     public Class<?> getJavaClass() {
-      return Timestamp.class;
+      return LocalDateTime.class;
     }
 
     @Override
-    public void nonNullWrite(int rowId, Timestamp data, ColumnVector output) {
+    public void nonNullWrite(int rowId, LocalDateTime data, ColumnVector output) {
       TimestampColumnVector cv = (TimestampColumnVector) output;
       cv.setIsUTC(true);
       // millis
-      OffsetDateTime offsetDateTime = data.toInstant().atOffset(ZoneOffset.UTC);
-      cv.time[rowId] = offsetDateTime.toEpochSecond() * 1_000 + offsetDateTime.getNano() / 1_000_000;
+      Instant instant = data.toInstant(ZoneOffset.UTC);
+      cv.time[rowId] = instant.getEpochSecond() * 1_000 + instant.getNano() / 1_000_000;
       // truncate nanos to only keep microsecond precision.
-      cv.nanos[rowId] = (offsetDateTime.getNano() / 1_000) * 1_000;
+      cv.nanos[rowId] = (instant.getNano() / 1_000) * 1_000;
     }
   }
 
-  private static class TimestampTzWriter implements OrcValueWriter<Timestamp> {
+  private static class TimestampTzWriter implements OrcValueWriter<Instant> {
     private static final TimestampTzWriter INSTANCE = new TimestampTzWriter();
 
     @Override
-    public Class<Timestamp> getJavaClass() {
-      return Timestamp.class;
+    public Class<?> getJavaClass() {
+      return Instant.class;
     }
 
     @Override
-    public void nonNullWrite(int rowId, Timestamp data, ColumnVector output) {
+    public void nonNullWrite(int rowId, Instant data, ColumnVector output) {
       TimestampColumnVector cv = (TimestampColumnVector) output;
       // millis
-      Instant instant = data.toInstant();
-      cv.time[rowId] = instant.toEpochMilli();
+      cv.time[rowId] = data.toEpochMilli();
       // truncate nanos to only keep microsecond precision.
-      cv.nanos[rowId] = (instant.getNano() / 1_000) * 1_000;
+      cv.nanos[rowId] = (data.getNano() / 1_000) * 1_000;
     }
   }
 

@@ -62,8 +62,8 @@ public class FlinkOrcWriter implements OrcRowWriter<Row> {
 
     @Override
     public OrcValueWriter<Row> record(Types.StructType iStruct,
-                                          List<OrcValueWriter<?>> results,
-                                          List<LogicalType> fieldType) {
+                                      List<OrcValueWriter<?>> results,
+                                      List<LogicalType> fieldType) {
       return FlinkOrcWriters.struct(results, fieldType);
     }
 
