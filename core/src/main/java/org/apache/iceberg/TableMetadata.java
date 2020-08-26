@@ -630,6 +630,12 @@ public class TableMetadata implements Serializable {
         currentSnapshotId, snapshots, snapshotLog, addPreviousFile(file, lastUpdatedMillis));
   }
 
+  public TableMetadata deepCopy() {
+    return new TableMetadata(file, formatVersion, uuid, location, lastSequenceNumber,
+        lastUpdatedMillis, lastColumnId, schema, defaultSpecId, specs, properties,
+        currentSnapshotId, snapshots, snapshotLog, previousFiles);
+  }
+
   private List<MetadataLogEntry> addPreviousFile(InputFile previousFile, long timestampMillis) {
     return addPreviousFile(previousFile, timestampMillis, properties);
   }
