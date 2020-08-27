@@ -238,7 +238,7 @@ public class FlinkParquetWriters {
     return new TimestampWriter(desc);
   }
 
-  private static ParquetValueWriters.PrimitiveWriter<OffsetDateTime> timestampTzs(ColumnDescriptor desc) {
+  private static ParquetValueWriters.PrimitiveWriter<Instant> timestampTzs(ColumnDescriptor desc) {
     return new TimestampTzWriter(desc);
   }
 
@@ -363,14 +363,14 @@ public class FlinkParquetWriters {
     }
   }
 
-  private static class TimestampTzWriter extends ParquetValueWriters.PrimitiveWriter<OffsetDateTime> {
+  private static class TimestampTzWriter extends ParquetValueWriters.PrimitiveWriter<Instant> {
     private TimestampTzWriter(ColumnDescriptor desc) {
       super(desc);
     }
 
     @Override
-    public void write(int repetitionLevel, OffsetDateTime value) {
-      column.writeLong(repetitionLevel, ChronoUnit.MICROS.between(EPOCH, value));
+    public void write(int repetitionLevel, Instant value) {
+      column.writeLong(repetitionLevel, ChronoUnit.MICROS.between(EPOCH, value.atOffset(ZoneOffset.UTC)));
     }
   }
 

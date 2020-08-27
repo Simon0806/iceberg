@@ -97,7 +97,7 @@ public class TestHelpers {
             Assert.assertTrue("Should expect a OffsetDataTime", expectedValue instanceof OffsetDateTime);
             OffsetDateTime ts = (OffsetDateTime) expectedValue;
             Assert.assertEquals("OffsetDataTime should be equal", ts.toLocalDateTime(),
-                ((OffsetDateTime) actualValue).toLocalDateTime());
+                ((Instant) actualValue).atOffset(ZoneOffset.UTC).toLocalDateTime());
           } else {
             Assert.assertTrue("Should expect a LocalDataTime", expectedValue instanceof LocalDateTime);
             LocalDateTime ts = (LocalDateTime) expectedValue;

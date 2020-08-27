@@ -26,8 +26,6 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -339,16 +337,15 @@ public class FlinkParquetReaders {
     }
   }
 
-  private static class TimestampTzReader extends ParquetValueReaders.UnboxedReader<OffsetDateTime> {
+  private static class TimestampTzReader extends ParquetValueReaders.UnboxedReader<Instant> {
     TimestampTzReader(ColumnDescriptor desc) {
       super(desc);
     }
 
     @Override
-    public OffsetDateTime read(OffsetDateTime ignored) {
+    public Instant read(Instant ignored) {
       long value = readLong();
-      return Instant.ofEpochSecond(value / 1000_000, (value % 1000_000) * 1000)
-          .atOffset(ZoneOffset.UTC);
+      return Instant.ofEpochSecond(value / 1000_000, (value % 1000_000) * 1000);
     }
 
     @Override

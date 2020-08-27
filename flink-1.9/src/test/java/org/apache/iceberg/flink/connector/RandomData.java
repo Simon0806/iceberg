@@ -158,7 +158,7 @@ public class RandomData {
         case TIMESTAMP:
           Types.TimestampType ts = (Types.TimestampType) primitive;
           if (ts.shouldAdjustToUTC()) {
-            return DateTimeUtil.timestamptzFromMicros((long) result);
+            return DateTimeUtil.timestamptzFromMicros((long) result).toInstant();
           } else {
             return DateTimeUtil.timestampFromMicros((long) result);
           }
