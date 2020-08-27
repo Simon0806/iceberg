@@ -25,7 +25,6 @@ Tencent changes:
   Add Flink Orc writer and reader [simonssu]
   Add more parameter validation and log key parameters to task manager's log [seanxiangli]
   Add Flink table source [jimmyjchen]
-  Support Flink orc reader and writer  [simonssu]
   Update tencent-release.sh to remove versions.lock when packaging source code [seanxiangli]
   Unset `fs.hdfs.impl` to fix HDFS loading issue [jimmyjchen]
   Improve Flink Iceberg sink parameters [seanxiangli]
