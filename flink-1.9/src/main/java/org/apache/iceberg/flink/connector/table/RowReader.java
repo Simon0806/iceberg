@@ -25,11 +25,13 @@ import org.apache.iceberg.DataFile;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.encryption.EncryptionManager;
+import org.apache.iceberg.flink.connector.data.FlinkOrcReader;
 import org.apache.iceberg.flink.connector.data.FlinkParquetReaders;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.CloseableIterator;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
+import org.apache.iceberg.orc.ORC;
 import org.apache.iceberg.parquet.Parquet;
 
 public class RowReader extends BaseRowReader<Row>  {
@@ -48,30 +50,32 @@ public class RowReader extends BaseRowReader<Row>  {
 
   @Override
   protected CloseableIterator<Row> open(FileScanTask currentTask) {
-    DataFile file = currentTask.file();
     InputFile inputFile = getInputFile(currentTask);
-    CloseableIterable<Row> iterable;
+    return newIterable(inputFile, currentTask).iterator();
+  }
+
+  private CloseableIterable<Row> newIterable(InputFile location, FileScanTask task) {
+    DataFile file = task.file();
     switch (file.format()) {
       case PARQUET:
-        iterable = newParquetIterable(inputFile, currentTask);
-        break;
+        return Parquet.read(location)
+            .project(readSchema)
+            .split(task.start(), task.length())
+            .createReaderFunc(fileSchema -> FlinkParquetReaders.buildReader(readSchema, fileSchema))
+            .filter(task.residual())
+            .caseSensitive(caseSensitive)
+            .build();
+      case ORC:
+        return ORC.read(location)
+            .project(readSchema)
+            .split(task.start(), task.length())
+            .createReaderFunc(fileSchema -> FlinkOrcReader.buildReader(readSchema, fileSchema))
+            .filter(task.residual())
+            .caseSensitive(caseSensitive)
+            .build();
       default:
         throw new UnsupportedOperationException(
             String.format("Cannot read %s file: %s", file.format().name(), file.path()));
     }
-    return iterable.iterator();
   }
-
-  private CloseableIterable<Row> newParquetIterable(
-      InputFile location,
-      FileScanTask task) {
-    return Parquet.read(location)
-        .project(readSchema)
-        .split(task.start(), task.length())
-        .createReaderFunc(fileSchema -> FlinkParquetReaders.buildReader(readSchema, fileSchema))
-        .filter(task.residual())
-        .caseSensitive(caseSensitive)
-        .build();
-  }
-
 }
