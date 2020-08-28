@@ -313,6 +313,8 @@ project(':iceberg-flink-1.9') {
     compile project(':iceberg-data')
     compile project(':iceberg-hive')
     compile project(':iceberg-parquet')
+    compile project(':iceberg-orc')
+    compile project(':iceberg-core')
     compileOnly("org.apache.flink:flink-table-api-java-bridge_2.11") {
       exclude group: 'com.esotericsoftware.kryo', module: 'kryo'
       exclude group: 'com.esotericsoftware.minlog', module: 'minlog'
@@ -377,6 +379,9 @@ project(':iceberg-flink-1.9') {
       exclude group: 'org.apache.calcite.avatica'
       exclude group: 'com.google.code.findbugs', module: 'jsr305'
     }
+
+    testCompile project(path: ':iceberg-api', configuration: 'testArtifacts')
+    testCompile project(path: ':iceberg-data', configuration: 'testArtifacts')
   }
 }
 

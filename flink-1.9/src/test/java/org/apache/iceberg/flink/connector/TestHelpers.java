@@ -95,6 +95,7 @@ public class TestHelpers {
         case TIMESTAMP:
           if (((Types.TimestampType) types.get(i)).shouldAdjustToUTC()) {
             Assert.assertTrue("Should expect a OffsetDataTime", expectedValue instanceof OffsetDateTime);
+            Assert.assertTrue("Should expect a Instant", actualValue instanceof Instant);
             OffsetDateTime ts = (OffsetDateTime) expectedValue;
             Assert.assertEquals("OffsetDataTime should be equal", ts.toLocalDateTime(),
                 ((Instant) actualValue).atOffset(ZoneOffset.UTC).toLocalDateTime());

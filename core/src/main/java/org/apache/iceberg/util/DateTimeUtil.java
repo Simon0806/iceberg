@@ -58,6 +58,14 @@ public class DateTimeUtil {
     return ChronoUnit.MICROS.between(EPOCH, dateTime.atOffset(ZoneOffset.UTC));
   }
 
+  public static Instant timestamptzFromMicrosInstant(long microsFromEpoch) {
+    return timestamptzFromMicros(microsFromEpoch).toInstant();
+  }
+
+  public static long microsFromTimestamptzInstant(Instant dateTime) {
+    return ChronoUnit.MICROS.between(EPOCH, dateTime);
+  }
+
   public static OffsetDateTime timestamptzFromMicros(long microsFromEpoch) {
     return ChronoUnit.MICROS.addTo(EPOCH, microsFromEpoch);
   }

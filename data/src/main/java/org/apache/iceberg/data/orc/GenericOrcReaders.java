@@ -240,7 +240,7 @@ public class GenericOrcReaders {
       MapColumnVector mapVector = (MapColumnVector) vector;
       int offset = (int) mapVector.offsets[row];
       long length = mapVector.lengths[row];
-      Map<Object, Object> map = Maps.newHashMapWithExpectedSize((int) length);
+      Map<Object, Object> map = Maps.newLinkedHashMapWithExpectedSize((int) length);
       for (int c = 0; c < length; c++) {
         map.put(
             keyReader.read(mapVector.keys, offset + c),
