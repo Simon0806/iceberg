@@ -50,11 +50,13 @@ import org.apache.iceberg.data.avro.DataWriter;
 import org.apache.iceberg.exceptions.RuntimeIOException;
 import org.apache.iceberg.flink.connector.FlinkSchemaUtil;
 import org.apache.iceberg.flink.connector.IcebergConnectorConstant;
+import org.apache.iceberg.flink.connector.data.FlinkOrcWriter;
 import org.apache.iceberg.flink.connector.data.FlinkParquetWriters;
 import org.apache.iceberg.io.FileAppender;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.LocationProvider;
 import org.apache.iceberg.io.OutputFile;
+import org.apache.iceberg.orc.ORC;
 import org.apache.iceberg.parquet.Parquet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -362,6 +364,14 @@ public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
               .createWriterFunc(DataWriter::create)
               .setAll(tableProps)
               .schema(schema)
+              .overwrite()
+              .build();
+        case ORC:
+          return ORC.write(file)
+              .setAll(tableProps)
+              .schema(schema)
+              .createWriterFunc((iSchema, typeDesc) -> FlinkOrcWriter.buildWriter(
+                  FlinkSchemaUtil.convert(schema), iSchema))
               .overwrite()
               .build();
 
