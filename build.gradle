@@ -28,7 +28,7 @@ buildscript {
   }
   dependencies {
     classpath 'com.github.jengelman.gradle.plugins:shadow:5.0.0'
-    classpath 'com.palantir.baseline:gradle-baseline-java:0.55.0'
+    classpath 'com.palantir.baseline:gradle-baseline-java:3.36.2'
     classpath 'com.diffplug.spotless:spotless-plugin-gradle:3.14.0'
     classpath 'gradle.plugin.org.inferred:gradle-processors:2.1.0'
     classpath 'me.champeau.gradle:jmh-gradle-plugin:0.4.8'
@@ -37,7 +37,7 @@ buildscript {
 }
 
 plugins {
-  id 'com.palantir.git-version' version '0.9.1'
+  id 'com.palantir.git-version' version '0.12.3'
   id 'nebula.dependency-recommender' version '9.0.2'
 }
 
@@ -169,7 +169,7 @@ project(':iceberg-bundled-guava') {
   }
 
   jar {
-    classifier 'empty'
+    archiveClassifier = 'empty'
   }
 }
 
@@ -177,7 +177,6 @@ project(':iceberg-api') {
   dependencies {
     compile project(path: ':iceberg-bundled-guava', configuration: 'shadow')
     testCompile "org.apache.avro:avro"
-    testCompile 'joda-time:joda-time'
   }
 }
 
@@ -520,9 +519,10 @@ project(':iceberg-mr') {
   dependencies {
     compile project(':iceberg-api')
     compile project(':iceberg-core')
+    compile project(':iceberg-data')
+    compile project(':iceberg-hive')
     compile project(':iceberg-orc')
     compile project(':iceberg-parquet')
-    compile project(':iceberg-data')
 
     compileOnly("org.apache.hadoop:hadoop-client") {
       exclude group: 'org.apache.avro', module: 'avro'
@@ -545,6 +545,7 @@ project(':iceberg-mr') {
     testCompile project(path: ':iceberg-data', configuration: 'testArtifacts')
     testCompile project(path: ':iceberg-api', configuration: 'testArtifacts')
     testCompile project(path: ':iceberg-core', configuration: 'testArtifacts')
+    testCompile project(path: ':iceberg-hive', configuration: 'testArtifacts')
 
     testCompile("org.apache.avro:avro:1.9.2")
     testCompile("org.apache.calcite:calcite-core")
@@ -616,7 +617,7 @@ project(':iceberg-arrow') {
       exclude group: 'io.netty', module: 'netty-common'
       exclude group: 'com.google.code.findbugs', module: 'jsr305'
     }
-    compile("org.apache.arrow:arrow-memory") {
+    compile("org.apache.arrow:arrow-memory-netty") {
       exclude group: 'io.netty', module: 'netty-common'
       exclude group: 'com.google.code.findbugs', module: 'jsr305'
     }
@@ -658,6 +659,7 @@ project(':iceberg-spark') {
     }
     testCompile project(path: ':iceberg-hive', configuration: 'testArtifacts')
     testCompile project(path: ':iceberg-api', configuration: 'testArtifacts')
+    testCompile project(path: ':iceberg-data', configuration: 'testArtifacts')
   }
 
   test {
@@ -803,7 +805,7 @@ if (jdkVersion == '8') {
     }
 
     jar {
-      classifier = 'empty'
+      enabled = false
     }
   }
 }
@@ -925,7 +927,7 @@ project(':iceberg-spark3-runtime') {
   }
 
   jar {
-    classifier = 'empty'
+    enabled = false
   }
 }
 

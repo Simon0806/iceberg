@@ -34,7 +34,8 @@ public class CommitMetadataUtil {
   private static final Logger LOG = LoggerFactory.getLogger(CommitMetadataUtil.class);
   private static final DatumWriter<CommitMetadata> DATUM_WRITER = new SpecificDatumWriter<>(CommitMetadata.class);
 
-  private CommitMetadataUtil() {}
+  private CommitMetadataUtil() {
+  }
 
   public static String encodeAsJson(CommitMetadata metadata) {
     ByteArrayOutputStream outputStream = new ByteArrayOutputStream();

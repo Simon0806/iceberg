@@ -27,7 +27,8 @@ import org.apache.iceberg.relocated.com.google.common.base.Joiner;
 import org.apache.iceberg.relocated.com.google.common.base.Strings;
 
 public class FlinkManifestFileUtil {
-  private FlinkManifestFileUtil() {}
+  private FlinkManifestFileUtil() {
+  }
 
   public static long getDataFileCount(List<FlinkManifestFile> flinkManifestFiles) {
     return flinkManifestFiles.stream().map(FlinkManifestFile::dataFileCount)

@@ -25,7 +25,8 @@ class InheritableMetadataFactory {
 
   private static final InheritableMetadata EMPTY = new EmptyInheritableMetadata();
 
-  private InheritableMetadataFactory() {}
+  private InheritableMetadataFactory() {
+  }
 
   static InheritableMetadata empty() {
     return EMPTY;
@@ -34,7 +35,7 @@ class InheritableMetadataFactory {
   static InheritableMetadata fromManifest(ManifestFile manifest) {
     Preconditions.checkArgument(manifest.snapshotId() != null,
         "Cannot read from ManifestFile with null (unassigned) snapshot ID");
-    return new BaseInheritableMetadata(manifest.snapshotId(), manifest.sequenceNumber());
+    return new BaseInheritableMetadata(manifest.partitionSpecId(), manifest.snapshotId(), manifest.sequenceNumber());
   }
 
   static InheritableMetadata forCopy(long snapshotId) {
@@ -42,16 +43,22 @@ class InheritableMetadataFactory {
   }
 
   static class BaseInheritableMetadata implements InheritableMetadata {
+    private final int specId;
     private final long snapshotId;
     private final long sequenceNumber;
 
-    private BaseInheritableMetadata(long snapshotId, long sequenceNumber) {
+    private BaseInheritableMetadata(int specId, long snapshotId, long sequenceNumber) {
+      this.specId = specId;
       this.snapshotId = snapshotId;
       this.sequenceNumber = sequenceNumber;
     }
 
     @Override
     public <F extends ContentFile<F>> ManifestEntry<F> apply(ManifestEntry<F> manifestEntry) {
+      if (manifestEntry.file() instanceof BaseFile) {
+        BaseFile<?> file = (BaseFile<?>) manifestEntry.file();
+        file.setSpecId(specId);
+      }
       if (manifestEntry.snapshotId() == null) {
         manifestEntry.setSnapshotId(snapshotId);
       }
@@ -78,7 +85,8 @@ class InheritableMetadataFactory {
 
   static class EmptyInheritableMetadata implements InheritableMetadata {
 
-    private EmptyInheritableMetadata() {}
+    private EmptyInheritableMetadata() {
+    }
 
     @Override
     public <F extends ContentFile<F>> ManifestEntry<F> apply(ManifestEntry<F> manifestEntry) {

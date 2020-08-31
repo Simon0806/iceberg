@@ -486,7 +486,7 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
       return flinkManifestFile;
     } catch (Throwable t) {
       result = "failed";
-      //LOG.error(String.format("Iceberg committer %s.%s failed to create manifest file for %d pending data files",
+      // LOG.error(String.format("Iceberg committer %s.%s failed to create manifest file for %d pending data files",
       //          database, tableName, pendingDataFiles.size()), t);
       LOG.error("Iceberg committer {} failed to create manifest file for {} pending data files. Throwable={}",
           identifier, pendingDataFiles.size(), t);

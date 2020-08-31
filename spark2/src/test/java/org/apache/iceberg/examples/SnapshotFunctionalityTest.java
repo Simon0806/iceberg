@@ -68,7 +68,7 @@ public class SnapshotFunctionalityTest {
 
     tableLocation = Files.createTempDirectory("temp").toFile();
 
-    HadoopTables tables = new HadoopTables(spark.sparkContext().hadoopConfiguration());
+    HadoopTables tables = new HadoopTables(spark.sessionState().newHadoopConf());
     PartitionSpec spec = PartitionSpec.unpartitioned();
     table = tables.create(schema, spec, tableLocation.toString());
 
@@ -124,7 +124,7 @@ public class SnapshotFunctionalityTest {
     Iterator<Snapshot> beforeIterator = table.snapshots().iterator();
     List<Snapshot> beforeSnapshots = IteratorUtils.toList(beforeIterator);
 
-    //Delete the 2 oldest snapshots
+    // Delete the 2 oldest snapshots
     table.expireSnapshots().expireOlderThan(secondLatestTimestamp).commit();
     table.refresh();
 

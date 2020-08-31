@@ -33,7 +33,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.apache.iceberg.orc.OrcValueWriter;
+import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
+import org.apache.iceberg.util.ByteBuffers;
 import org.apache.orc.storage.common.type.HiveDecimal;
 import org.apache.orc.storage.ql.exec.vector.BytesColumnVector;
 import org.apache.orc.storage.ql.exec.vector.ColumnVector;
@@ -53,6 +55,14 @@ public class GenericOrcWriters {
 
   public static OrcValueWriter<Boolean> booleans() {
     return BooleanWriter.INSTANCE;
+  }
+
+  public static OrcValueWriter<Byte> bytes() {
+    return ByteWriter.INSTANCE;
+  }
+
+  public static OrcValueWriter<Short> shorts() {
+    return ShortWriter.INSTANCE;
   }
 
   public static OrcValueWriter<Integer> ints() {
@@ -87,8 +97,8 @@ public class GenericOrcWriters {
     return UUIDWriter.INSTANCE;
   }
 
-  public static OrcValueWriter<byte[]> fixed() {
-    return FixedWriter.INSTANCE;
+  public static OrcValueWriter<byte[]> byteArrays() {
+    return ByteArrayWriter.INSTANCE;
   }
 
   public static OrcValueWriter<LocalDate> dates() {
@@ -103,11 +113,13 @@ public class GenericOrcWriters {
     return TimestampWriter.INSTANCE;
   }
 
-  public static OrcValueWriter<BigDecimal> decimal(int scale, int precision) {
+  public static OrcValueWriter<BigDecimal> decimal(int precision, int scale) {
     if (precision <= 18) {
-      return new Decimal18Writer(scale);
+      return new Decimal18Writer(precision, scale);
+    } else if (precision <= 38) {
+      return new Decimal38Writer(precision, scale);
     } else {
-      return Decimal38Writer.INSTANCE;
+      throw new IllegalArgumentException("Invalid precision: " + precision);
     }
   }
 
@@ -130,6 +142,34 @@ public class GenericOrcWriters {
     @Override
     public void nonNullWrite(int rowId, Boolean data, ColumnVector output) {
       ((LongColumnVector) output).vector[rowId] = data ? 1 : 0;
+    }
+  }
+
+  private static class ByteWriter implements OrcValueWriter<Byte> {
+    private static final OrcValueWriter<Byte> INSTANCE = new ByteWriter();
+
+    @Override
+    public Class<Byte> getJavaClass() {
+      return Byte.class;
+    }
+
+    @Override
+    public void nonNullWrite(int rowId, Byte data, ColumnVector output) {
+      ((LongColumnVector) output).vector[rowId] = data;
+    }
+  }
+
+  private static class ShortWriter implements OrcValueWriter<Short> {
+    private static final OrcValueWriter<Short> INSTANCE = new ShortWriter();
+
+    @Override
+    public Class<Short> getJavaClass() {
+      return Short.class;
+    }
+
+    @Override
+    public void nonNullWrite(int rowId, Short data, ColumnVector output) {
+      ((LongColumnVector) output).vector[rowId] = data;
     }
   }
 
@@ -228,7 +268,13 @@ public class GenericOrcWriters {
 
     @Override
     public void nonNullWrite(int rowId, ByteBuffer data, ColumnVector output) {
-      ((BytesColumnVector) output).setRef(rowId, data.array(), 0, data.array().length);
+      if (data.hasArray()) {
+        ((BytesColumnVector) output).setRef(rowId, data.array(),
+                data.arrayOffset() + data.position(), data.remaining());
+      } else {
+        byte[] rawData = ByteBuffers.toByteArray(data);
+        ((BytesColumnVector) output).setRef(rowId, rawData, 0, rawData.length);
+      }
     }
   }
 
@@ -241,6 +287,7 @@ public class GenericOrcWriters {
     }
 
     @Override
+    @SuppressWarnings("ByteBufferBackingArray")
     public void nonNullWrite(int rowId, UUID data, ColumnVector output) {
       ByteBuffer buffer = ByteBuffer.allocate(16);
       buffer.putLong(data.getMostSignificantBits());
@@ -249,8 +296,8 @@ public class GenericOrcWriters {
     }
   }
 
-  private static class FixedWriter implements OrcValueWriter<byte[]> {
-    private static final OrcValueWriter<byte[]> INSTANCE = new FixedWriter();
+  private static class ByteArrayWriter implements OrcValueWriter<byte[]> {
+    private static final OrcValueWriter<byte[]> INSTANCE = new ByteArrayWriter();
 
     @Override
     public Class<byte[]> getJavaClass() {
@@ -288,8 +335,10 @@ public class GenericOrcWriters {
     @Override
     public void nonNullWrite(int rowId, OffsetDateTime data, ColumnVector output) {
       TimestampColumnVector cv = (TimestampColumnVector) output;
-      cv.time[rowId] = data.toInstant().toEpochMilli(); // millis
-      cv.nanos[rowId] = (data.getNano() / 1_000) * 1_000; // truncate nanos to only keep microsecond precision
+      // millis
+      cv.time[rowId] = data.toInstant().toEpochMilli();
+      // truncate nanos to only keep microsecond precision
+      cv.nanos[rowId] = data.getNano() / 1_000 * 1_000;
     }
   }
 
@@ -311,9 +360,11 @@ public class GenericOrcWriters {
   }
 
   private static class Decimal18Writer implements OrcValueWriter<BigDecimal> {
+    private final int precision;
     private final int scale;
 
-    Decimal18Writer(int scale) {
+    Decimal18Writer(int precision, int scale) {
+      this.precision = precision;
       this.scale = scale;
     }
 
@@ -324,14 +375,24 @@ public class GenericOrcWriters {
 
     @Override
     public void nonNullWrite(int rowId, BigDecimal data, ColumnVector output) {
-      // TODO: validate precision and scale from schema
+      Preconditions.checkArgument(data.scale() == scale,
+          "Cannot write value as decimal(%s,%s), wrong scale: %s", precision, scale, data);
+      Preconditions.checkArgument(data.precision() <= precision,
+          "Cannot write value as decimal(%s,%s), invalid precision: %s", precision, scale, data);
+
       ((DecimalColumnVector) output).vector[rowId]
           .setFromLongAndScale(data.unscaledValue().longValueExact(), scale);
     }
   }
 
   private static class Decimal38Writer implements OrcValueWriter<BigDecimal> {
-    private static final OrcValueWriter<BigDecimal> INSTANCE = new Decimal38Writer();
+    private final int precision;
+    private final int scale;
+
+    Decimal38Writer(int precision, int scale) {
+      this.precision = precision;
+      this.scale = scale;
+    }
 
     @Override
     public Class<BigDecimal> getJavaClass() {
@@ -340,7 +401,11 @@ public class GenericOrcWriters {
 
     @Override
     public void nonNullWrite(int rowId, BigDecimal data, ColumnVector output) {
-      // TODO: validate precision and scale from schema
+      Preconditions.checkArgument(data.scale() == scale,
+          "Cannot write value as decimal(%s,%s), wrong scale: %s", precision, scale, data);
+      Preconditions.checkArgument(data.precision() <= precision,
+          "Cannot write value as decimal(%s,%s), invalid precision: %s", precision, scale, data);
+
       ((DecimalColumnVector) output).vector[rowId].set(HiveDecimal.create(data, false));
     }
   }

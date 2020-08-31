@@ -166,22 +166,23 @@ class SparkBatchScan implements Scan, Batch, SupportsReportStatistics {
 
     boolean atLeastOneColumn = expectedSchema.columns().size() > 0;
 
-    boolean hasNoIdentityProjections = tasks().stream()
-        .allMatch(combinedScanTask -> combinedScanTask.files()
-            .stream()
-            .allMatch(fileScanTask -> fileScanTask.spec().identitySourceIds().isEmpty()));
-
     boolean onlyPrimitives = expectedSchema.columns().stream().allMatch(c -> c.type().isPrimitiveType());
 
     boolean readUsingBatch = batchReadsEnabled && (allOrcFileScanTasks ||
-        (allParquetFileScanTasks && atLeastOneColumn && hasNoIdentityProjections && onlyPrimitives));
+        (allParquetFileScanTasks && atLeastOneColumn && onlyPrimitives));
 
     return new ReaderFactory(readUsingBatch ? batchSize : 0);
   }
 
   @Override
   public Statistics estimateStatistics() {
-    if (filterExpressions == null || filterExpressions.isEmpty()) {
+    // its a fresh table, no data
+    if (table.currentSnapshot() == null) {
+      return new Stats(0L, 0L);
+    }
+
+    // estimate stats using snapshot summary only for partitioned tables (metadata tables are unpartitioned)
+    if (!table.spec().isUnpartitioned() && (filterExpressions == null || filterExpressions.isEmpty())) {
       LOG.debug("using table metadata to estimate table statistics");
       long totalRecords = PropertyUtil.propertyAsLong(table.currentSnapshot().summary(),
           SnapshotSummary.TOTAL_RECORDS_PROP, Long.MAX_VALUE);
