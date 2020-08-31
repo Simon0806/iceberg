@@ -91,6 +91,7 @@ import org.slf4j.LoggerFactory;
 @SuppressWarnings("checkstyle:HiddenField")
 public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
     implements CheckpointedFunction, CheckpointListener, ProcessingTimeCallback {
+  private static final long serialVersionUID = 1L;
   private static final Logger LOG = LoggerFactory.getLogger(IcebergCommitter.class);
 
   private static final String COMMIT_MANIFEST_HASHES_KEY = "flink.commit.manifest.hashes";

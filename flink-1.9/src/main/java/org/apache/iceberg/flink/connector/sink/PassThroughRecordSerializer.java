@@ -26,7 +26,7 @@ import org.apache.iceberg.Schema;
  * Pass Flink's {@link Row} directly, without any operations
  */
 public class PassThroughRecordSerializer implements RecordSerializer<Row> {
-
+  private static final long serialVersionUID = 1L;
   private static final PassThroughRecordSerializer INSTANCE = new PassThroughRecordSerializer();
 
   public static PassThroughRecordSerializer getInstance() {

@@ -28,7 +28,7 @@ import org.apache.iceberg.Schema;
  * only when the first field (f0, so called "message type" or "flag") is true
  */
 public class FlinkTuple2Serializer implements RecordSerializer<Tuple2<Boolean, Row>> {
-
+  private static final long serialVersionUID = 1L;
   private static final FlinkTuple2Serializer INSTANCE = new FlinkTuple2Serializer();
 
   public static FlinkTuple2Serializer getInstance() {

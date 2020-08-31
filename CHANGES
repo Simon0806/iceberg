@@ -20,6 +20,7 @@
 Tencent changes:
 
 0.9.0-1-tencent
+  Explicitly specify serialVersionUID of IcebergWriter and IcebergCommitter as well as other Iceberg sink related classes [seanxiangli]
   Flink-1.9: use schema visitor for paruqet reader and writer [jimmyjchen]
   Spark3: Support Update, Delete and Merge Into command for spark SQL [jimmyjchen]
   Check if there is at least 1 pending data file in close() of IcebergCommitter, to avoid commit with nothing [seanxiangli]

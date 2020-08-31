@@ -68,7 +68,7 @@ import static org.apache.iceberg.TableProperties.DEFAULT_FILE_FORMAT_DEFAULT;
 public class IcebergWriter<IN> extends AbstractStreamOperator<FlinkDataFile>
     implements OneInputStreamOperator<IN, FlinkDataFile>, BoundedOneInput,
     ProcessingTimeCallback {
-
+  private static final long serialVersionUID = 1L;
   private static final Logger LOG = LoggerFactory.getLogger(IcebergWriter.class);
 
   private final RecordSerializer<IN> serializer;

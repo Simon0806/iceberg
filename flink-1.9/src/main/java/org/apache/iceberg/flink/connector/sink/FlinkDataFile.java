@@ -24,6 +24,8 @@ import org.apache.iceberg.DataFile;
 import org.apache.iceberg.relocated.com.google.common.base.MoreObjects;
 
 public class FlinkDataFile implements Serializable {
+  private static final long serialVersionUID = 1L;
+
   private final long lowWatermark;
   private final long highWatermark;
   private final DataFile dataFile;
