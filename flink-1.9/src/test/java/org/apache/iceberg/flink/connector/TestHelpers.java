@@ -44,7 +44,8 @@ import org.apache.iceberg.types.Types;
 import org.junit.Assert;
 
 public class TestHelpers {
-  private TestHelpers() {}
+  private TestHelpers() {
+  }
 
   private static final OffsetDateTime EPOCH = Instant.ofEpochMilli(0L).atOffset(ZoneOffset.UTC);
   private static final LocalDate EPOCH_DAY = EPOCH.toLocalDate();

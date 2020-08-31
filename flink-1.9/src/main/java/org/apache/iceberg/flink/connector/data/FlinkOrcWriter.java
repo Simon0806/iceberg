@@ -108,7 +108,7 @@ public class FlinkOrcWriter implements OrcRowWriter<Row> {
           return GenericOrcWriters.uuids();
         case FIXED:
         case BINARY:
-          return GenericOrcWriters.fixed();
+          return GenericOrcWriters.byteArrays();
         case DECIMAL:
           Types.DecimalType decimalType = (Types.DecimalType) iPrimitive;
           return FlinkOrcWriters.decimals(decimalType.scale(), decimalType.precision());

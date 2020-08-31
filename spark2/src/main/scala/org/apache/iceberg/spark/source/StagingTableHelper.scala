@@ -46,7 +46,8 @@ case class StagingTableHelper(table: SparkIcebergTable) extends AnalysisHelper {
     val expectedSchemaString = SchemaParser.toJson(table.schema)
     val spec = table.getIcebergTable.spec()
     val residual = ResidualEvaluator.of(spec, Expressions.alwaysTrue(), table.caseSensitive)
-    val readTasks = files.map(new BaseFileScanTask(_, tableSchemaString, PartitionSpecParser.toJson(spec), residual))
+    val readTasks = files.map(new BaseFileScanTask(_, null, tableSchemaString, PartitionSpecParser.toJson(spec),
+      residual))
       .map { scan =>
         val io = IcebergSource.fileIO(table.getIcebergTable)
         val nameMappingString = table.getIcebergTable.properties().get(DEFAULT_NAME_MAPPING);

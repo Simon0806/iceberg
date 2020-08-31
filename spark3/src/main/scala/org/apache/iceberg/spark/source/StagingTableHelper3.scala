@@ -55,7 +55,8 @@ case class StagingTableHelper3(table: Table,
     val spec = table.spec()
     val residual = ResidualEvaluator.of(spec, Expressions.alwaysTrue(), caseSensitive)
     val jsc = new JavaSparkContext(sparkSession.sparkContext)
-    val readTasks = files.map(new BaseFileScanTask(_, tableSchemaString, PartitionSpecParser.toJson(spec), residual))
+    val readTasks = files.map(new BaseFileScanTask(_, null, tableSchemaString, PartitionSpecParser.toJson(spec),
+      residual))
       .map { scan =>
         val io = if (table.io().isInstanceOf[HadoopFileIO]) {
           val conf = new SerializableConfiguration(table.io.asInstanceOf[HadoopFileIO].conf)

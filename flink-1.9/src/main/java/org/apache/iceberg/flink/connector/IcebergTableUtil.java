@@ -36,7 +36,8 @@ public class IcebergTableUtil {
 
   public static final String EMPTY_STRING = "";
 
-  private IcebergTableUtil() {}
+  private IcebergTableUtil() {
+  }
 
   /**
    * Find and return {@link Table} based on the given {@link Configuration}.

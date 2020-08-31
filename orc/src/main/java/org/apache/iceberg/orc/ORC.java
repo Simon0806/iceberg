@@ -27,6 +27,7 @@ import java.util.function.BiFunction;
 import java.util.function.Function;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
+import org.apache.iceberg.MetricsConfig;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.exceptions.RuntimeIOException;
 import org.apache.iceberg.expressions.Expression;
@@ -36,6 +37,7 @@ import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.FileAppender;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.OutputFile;
+import org.apache.iceberg.mapping.NameMapping;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.orc.OrcConf;
 import org.apache.orc.OrcFile;
@@ -62,6 +64,7 @@ public class ORC {
     private Schema schema = null;
     private BiFunction<Schema, TypeDescription, OrcRowWriter<?>> createWriterFunc;
     private Map<String, byte[]> metadata = new HashMap<>();
+    private MetricsConfig metricsConfig;
 
     private WriteBuilder(OutputFile file) {
       this.file = file;
@@ -106,11 +109,16 @@ public class ORC {
       return this;
     }
 
+    public WriteBuilder metricsConfig(MetricsConfig newMetricsConfig) {
+      this.metricsConfig = newMetricsConfig;
+      return this;
+    }
+
     public <D> FileAppender<D> build() {
       Preconditions.checkNotNull(schema, "Schema is required");
       return new OrcFileAppender<>(schema,
           this.file, createWriterFunc, conf, metadata,
-          conf.getInt(VECTOR_ROW_BATCH_SIZE, VectorizedRowBatch.DEFAULT_SIZE));
+          conf.getInt(VECTOR_ROW_BATCH_SIZE, VectorizedRowBatch.DEFAULT_SIZE), metricsConfig);
     }
   }
 
@@ -121,11 +129,12 @@ public class ORC {
   public static class ReadBuilder {
     private final InputFile file;
     private final Configuration conf;
-    private org.apache.iceberg.Schema schema = null;
+    private Schema schema = null;
     private Long start = null;
     private Long length = null;
     private Expression filter = null;
     private boolean caseSensitive = true;
+    private NameMapping nameMapping = null;
 
     private Function<TypeDescription, OrcRowReader<?>> readerFunc;
     private Function<TypeDescription, OrcBatchReader<?>> batchedReaderFunc;
@@ -194,10 +203,15 @@ public class ORC {
       return this;
     }
 
+    public ReadBuilder withNameMapping(NameMapping newNameMapping) {
+      this.nameMapping = newNameMapping;
+      return this;
+    }
+
     public <D> CloseableIterable<D> build() {
       Preconditions.checkNotNull(schema, "Schema is required");
-      return new OrcIterable<>(file, conf, schema, start, length, readerFunc, caseSensitive, filter, batchedReaderFunc,
-          recordsPerBatch);
+      return new OrcIterable<>(file, conf, schema, nameMapping, start, length, readerFunc, caseSensitive, filter,
+          batchedReaderFunc, recordsPerBatch);
     }
   }
 

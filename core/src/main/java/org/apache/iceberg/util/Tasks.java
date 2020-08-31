@@ -42,7 +42,8 @@ import org.slf4j.LoggerFactory;
 public class Tasks {
   private static final Logger LOG = LoggerFactory.getLogger(Tasks.class);
 
-  private Tasks() {}
+  private Tasks() {
+  }
 
   public static class UnrecoverableException extends RuntimeException {
     public UnrecoverableException(String message) {
@@ -553,6 +554,10 @@ public class Tasks {
 
   public static Builder<Integer> range(int upTo) {
     return new Builder<>(new Range(upTo));
+  }
+
+  public static <I> Builder<I> foreach(Iterator<I> items) {
+    return new Builder<>(() -> items);
   }
 
   public static <I> Builder<I> foreach(Iterable<I> items) {

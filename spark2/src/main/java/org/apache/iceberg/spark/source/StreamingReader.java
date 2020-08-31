@@ -157,7 +157,8 @@ class StreamingReader extends Reader implements MicroBatchReader {
   }
 
   @Override
-  public void stop() {}
+  public void stop() {
+  }
 
   @Override
   @SuppressWarnings("unchecked")

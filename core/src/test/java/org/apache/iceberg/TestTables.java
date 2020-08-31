@@ -36,7 +36,8 @@ import static org.apache.iceberg.TableMetadata.newTableMetadata;
 
 public class TestTables {
 
-  private TestTables() {}
+  private TestTables() {
+  }
 
   private static TestTable upgrade(File temp, String name, int newFormatVersion) {
     TestTable table = load(temp, name);
@@ -107,7 +108,7 @@ public class TestTables {
   private static final Map<String, TableMetadata> METADATA = Maps.newHashMap();
   private static final Map<String, Integer> VERSIONS = Maps.newHashMap();
 
-  static void clearTables() {
+  public static void clearTables() {
     synchronized (METADATA) {
       METADATA.clear();
       VERSIONS.clear();

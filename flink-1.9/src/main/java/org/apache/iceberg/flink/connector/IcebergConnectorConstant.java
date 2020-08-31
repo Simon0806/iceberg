@@ -25,7 +25,8 @@ import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
 
 public class IcebergConnectorConstant {
-  private IcebergConnectorConstant() {}
+  private IcebergConnectorConstant() {
+  }
 
   // for HiveCatalog
   public static final String HIVE_METASTORE_URIS = "hive-metastore-uris";
