@@ -145,16 +145,7 @@ class RemoveSnapshots implements ExpireSnapshots {
 
     List<Snapshot> updateSnapshots = updated.snapshots();
     List<Snapshot> baseSnapshots = base.snapshots();
-    if (updateSnapshots.size() != baseSnapshots.size()) {
-      return updated;
-    } else {
-      for (int i = 0; i < baseSnapshots.size(); i += 1) {
-        if (!updateSnapshots.get(i).equals(baseSnapshots.get(i))) {
-          return updated;
-        }
-      }
-      return base;
-    }
+    return updateSnapshots.size() != baseSnapshots.size() ? updated : base;
   }
 
   @Override
