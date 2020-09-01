@@ -202,7 +202,6 @@ class BaseTransaction implements Transaction {
   public void commitTransaction() {
     Preconditions.checkState(lastBase != current,
         "Cannot commit transaction: last operation has not committed");
-
     switch (type) {
       case CREATE_TABLE:
         commitCreateTransaction();
@@ -449,10 +448,10 @@ class BaseTransaction implements Transaction {
       if (oldId != null && !oldId.equals(currentId(metadata)) && !oldId.equals(currentId(base))) {
         intermediateSnapshotIds.add(oldId);
       }
-
-      BaseTransaction.this.current = metadata;
-
-      this.tempOps = ops.temp(metadata);
+      // if metadata has no change, then we just do a deepCopy to let commitTranscation success.
+      TableMetadata newMeta = current != metadata ? metadata : metadata.deepCopy();
+      BaseTransaction.this.current = newMeta;
+      this.tempOps = ops.temp(newMeta);
     }
 
     @Override
