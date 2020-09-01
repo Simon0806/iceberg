@@ -62,6 +62,7 @@ import org.apache.iceberg.ManifestWriter;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.UpdateProperties;
 import org.apache.iceberg.flink.connector.IcebergConnectorConstant;
@@ -76,6 +77,7 @@ import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.OutputFile;
 import org.apache.iceberg.relocated.com.google.common.base.Joiner;
 import org.apache.iceberg.relocated.com.google.common.base.Strings;
+import org.apache.iceberg.util.PropertyUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -113,6 +115,9 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
   private final FileIO io;
   private final String flinkJobId;
   private final long flushCommitInterval;
+
+  private final long tableSnapshotRetainMills;
+  private final int tableSnapshotRetianNums;
 
   private transient Table table;
   private transient List<FlinkDataFile> pendingDataFiles;
@@ -184,6 +189,11 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
     // The only final fields yielded by table inputted
     spec = table.spec();
     io = table.io();
+
+    tableSnapshotRetainMills = PropertyUtil.propertyAsInt(table.properties(),
+        TableProperties.SNAPSHOT_RETAIN_LAST_HOURS, TableProperties.SNAPSHOT_RETAIN_LAST_HOURS_DEFAULT) * 3600 * 1000L;
+    tableSnapshotRetianNums = PropertyUtil.propertyAsInt(table.properties(),
+        TableProperties.SNAPSHOT_RETAIN_LAST_NUMS, TableProperties.SNAPSHOT_RETAIN_LAST_NUMS_DEFAULT);
 
     final JobExecutionResult jobExecutionResult
         = ExecutionEnvironment.getExecutionEnvironment().getLastJobExecutionResult();
@@ -669,6 +679,12 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
         identifier, CommitMetadataUtil.encodeAsJson(metadata));
     final long start = System.currentTimeMillis();
     try {
+      if (tableSnapshotRetainMills > 0) {
+        transaction.expireSnapshots()
+            .expireOlderThan(tableSnapshotRetainMills)
+            .retainLast(tableSnapshotRetianNums)
+            .commit();
+      }
       transaction.commitTransaction();
     } finally {
       final long duration = System.currentTimeMillis() - start;

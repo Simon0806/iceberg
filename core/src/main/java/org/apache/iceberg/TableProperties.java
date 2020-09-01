@@ -129,4 +129,10 @@ public class TableProperties {
 
   public static final String STAGING_TABLE_NAME_TAG = "staging.name.tag";
   public static final String STAGING_TABLE_NAME_TAG_DEFAULT = "staging";
+
+  public static final String SNAPSHOT_RETAIN_LAST_HOURS = "snapshot.retain-last.hours";
+  public static final int SNAPSHOT_RETAIN_LAST_HOURS_DEFAULT = 0;
+
+  public static final String SNAPSHOT_RETAIN_LAST_NUMS = "snapshot.retain-last.nums";
+  public static final int SNAPSHOT_RETAIN_LAST_NUMS_DEFAULT = 100;
 }
