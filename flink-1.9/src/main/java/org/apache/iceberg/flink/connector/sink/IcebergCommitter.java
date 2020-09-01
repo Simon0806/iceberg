@@ -117,7 +117,7 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
   private final long flushCommitInterval;
 
   private final long tableSnapshotRetainMills;
-  private final int tableSnapshotRetianNums;
+  private final int tableSnapshotRetainNums;
 
   private transient Table table;
   private transient List<FlinkDataFile> pendingDataFiles;
@@ -192,7 +192,7 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
 
     tableSnapshotRetainMills = PropertyUtil.propertyAsInt(table.properties(),
         TableProperties.SNAPSHOT_RETAIN_LAST_HOURS, TableProperties.SNAPSHOT_RETAIN_LAST_HOURS_DEFAULT) * 3600 * 1000L;
-    tableSnapshotRetianNums = PropertyUtil.propertyAsInt(table.properties(),
+    tableSnapshotRetainNums = PropertyUtil.propertyAsInt(table.properties(),
         TableProperties.SNAPSHOT_RETAIN_LAST_NUMS, TableProperties.SNAPSHOT_RETAIN_LAST_NUMS_DEFAULT);
 
     final JobExecutionResult jobExecutionResult
@@ -682,7 +682,7 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
       if (tableSnapshotRetainMills > 0) {
         transaction.expireSnapshots()
             .expireOlderThan(tableSnapshotRetainMills)
-            .retainLast(tableSnapshotRetianNums)
+            .retainLast(tableSnapshotRetainNums)
             .commit();
       }
       transaction.commitTransaction();
