@@ -19,17 +19,28 @@
 
 package org.apache.iceberg.flink.connector.sink;
 
+import java.util.Locale;
+import java.util.Map;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.DataStreamSink;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
+import org.apache.flink.streaming.api.functions.sink.SinkFunction;
+import org.apache.flink.table.types.logical.RowType;
+import org.apache.flink.types.Row;
+import org.apache.iceberg.DataFile;
+import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.flink.connector.FlinkSchemaUtil;
 import org.apache.iceberg.flink.connector.IcebergConnectorConstant;
 import org.apache.iceberg.flink.connector.IcebergTableUtil;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static org.apache.iceberg.TableProperties.DEFAULT_FILE_FORMAT;
+import static org.apache.iceberg.TableProperties.DEFAULT_FILE_FORMAT_DEFAULT;
 
 /**
  * Append Iceberg sink to DataStream
@@ -53,44 +64,62 @@ public class IcebergSinkAppender<IN> {
   /**
    * @param dataStream append sink to this DataStream
    */
-  public DataStreamSink<FlinkDataFile> append(DataStream<IN> dataStream) {
+  @SuppressWarnings("unchecked")
+  public DataStreamSink<DataFile> append(DataStream<IN> dataStream) {
     Preconditions.checkNotNull(serializer, "serializer can not be null");
 
     Table table = IcebergTableUtil.findTable(config);
-    IcebergWriter<IN> writer = new IcebergWriter<>(table, serializer, config);
+    IcebergWriter<IN> writer = createIcebergWriter(table);
     IcebergCommitter committer = new IcebergCommitter(table, config);
 
-    // append writer
-    final String writerId = sinkName + "-writer";
-    SingleOutputStreamOperator<FlinkDataFile> writerStream = dataStream
-        .transform(writerId, TypeInformation.of(FlinkDataFile.class), writer)  // IcebergWriter as stream operator
-        .uid(writerId);
-
-    // set writer's parallelism
+    // Generate write stream by append operators.
     int writerParallelism = config.getInteger(
         IcebergConnectorConstant.WRITER_PARALLELISM, IcebergConnectorConstant.DEFAULT_WRITER_PARALLELISM);
-    Preconditions.checkArgument(
-        writerParallelism > 0 /* valid input */ ||
-            writerParallelism == IcebergConnectorConstant.DEFAULT_WRITER_PARALLELISM /* default */,
+    Preconditions.checkArgument(writerParallelism >= 0,
         String.format("%s must be positive, or %d as default, but is %d",
             IcebergConnectorConstant.WRITER_PARALLELISM, IcebergConnectorConstant.DEFAULT_WRITER_PARALLELISM,
             writerParallelism));
     if (writerParallelism == IcebergConnectorConstant.DEFAULT_WRITER_PARALLELISM) {  // default
       writerParallelism = dataStream.getParallelism();
       LOG.info("{} not set, or explicitly set to the default value as {}, " +
-          "so make it to be the parallelism of the upstream operator as {}",
+              "so make it to be the parallelism of the upstream operator as {}",
           IcebergConnectorConstant.WRITER_PARALLELISM, IcebergConnectorConstant.DEFAULT_WRITER_PARALLELISM,
           writerParallelism);
     }
-    writerStream.setParallelism(writerParallelism);
+    final String writerId = sinkName + "-writer";
+    final String committerId = sinkName + "-committer";
+
+    SingleOutputStreamOperator<DataFile> writerStream = dataStream
+        .transform(writerId, TypeInformation.of(DataFile.class), writer)  // IcebergWriter as stream operator
+        .setParallelism(writerParallelism)
+        .uid(writerId)
+        .transform(committerId, TypeInformation.of(DataFile.class), committer)
+        .setParallelism(1)
+        .uid(committerId);
+
     LOG.info("{} is finally set to {}", IcebergConnectorConstant.WRITER_PARALLELISM, writerParallelism);
 
-    // append committer
-    final String committerId = sinkName + "-committer";
-    return writerStream
-        .addSink(committer)  // IcebergCommitter as sink
-        .name(committerId)
-        .uid(committerId)
-        .setParallelism(1);  // force parallelism of committer to 1
+    // we don't need a real sink because all data are handled in each operators
+    // to make a complete jobgraph , we need to put a empty sink here.
+    return writerStream.addSink(new EmptySink());
+  }
+
+  private IcebergWriter<IN> createIcebergWriter(Table table) {
+    Preconditions.checkArgument(table != null, "Iceberg table should't be null");
+    // TODO use flink table schema to read data.
+    RowType flinkSchema = FlinkSchemaUtil.convert(table.schema());
+    Map<String, String> props = table.properties();
+    long targetFileSize = config.getLong(IcebergConnectorConstant.MAX_FILE_SIZE_BYTES,
+        IcebergConnectorConstant.DEFAULT_MAX_FILE_SIZE_BYTES);
+    FileFormat fileFormat = FileFormat.valueOf(props.getOrDefault(DEFAULT_FILE_FORMAT, DEFAULT_FILE_FORMAT_DEFAULT)
+        .toUpperCase(Locale.ENGLISH));
+
+    TaskWriterFactory<Row> taskWriterFactory = new Flink19RowWriterFactory(table.schema(), flinkSchema,
+        table.spec(), table.locationProvider(), table.io(), table.encryption(), targetFileSize, fileFormat, props);
+
+    return new IcebergWriter<>(table, serializer, config, taskWriterFactory);
+  }
+
+  private static class EmptySink implements SinkFunction {
   }
 }

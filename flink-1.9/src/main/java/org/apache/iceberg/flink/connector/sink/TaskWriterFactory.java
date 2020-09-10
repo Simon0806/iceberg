@@ -19,13 +19,28 @@
 
 package org.apache.iceberg.flink.connector.sink;
 
-import org.apache.iceberg.StructLike;
+import java.io.Serializable;
+import org.apache.iceberg.io.TaskWriter;
 
-interface Partitioner<T> extends StructLike {
+/**
+ * Factory to create {@link TaskWriter}
+ *
+ * @param <T> data type of record.
+ */
+interface TaskWriterFactory<T> extends Serializable {
 
-  Partitioner<T> copy();
+  /**
+   * Initialize the factory with a given taskId and attemptId.
+   *
+   * @param taskId    the identifier of task.
+   * @param attemptId the attempt id of this task.
+   */
+  void initialize(int taskId, int attemptId);
 
-  String toPath();
-
-  void partition(T record);
+  /**
+   * Initialize a {@link TaskWriter} with given task id and attempt id.
+   *
+   * @return a newly created task writer.
+   */
+  TaskWriter<T> create();
 }

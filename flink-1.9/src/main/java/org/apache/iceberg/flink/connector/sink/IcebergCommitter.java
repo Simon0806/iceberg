@@ -41,15 +41,16 @@ import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.dropwizard.metrics.DropwizardHistogramWrapper;
 import org.apache.flink.dropwizard.metrics.DropwizardMeterWrapper;
-import org.apache.flink.runtime.state.CheckpointListener;
-import org.apache.flink.runtime.state.FunctionInitializationContext;
 import org.apache.flink.runtime.state.FunctionSnapshotContext;
+import org.apache.flink.runtime.state.StateInitializationContext;
+import org.apache.flink.runtime.state.StateSnapshotContext;
 import org.apache.flink.runtime.state.StateSnapshotContextSynchronousImpl;
-import org.apache.flink.streaming.api.checkpoint.CheckpointedFunction;
 import org.apache.flink.streaming.api.environment.CheckpointConfig;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
-import org.apache.flink.streaming.api.operators.StreamingRuntimeContext;
+import org.apache.flink.streaming.api.operators.AbstractStreamOperator;
+import org.apache.flink.streaming.api.operators.BoundedOneInput;
+import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
+import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.streaming.runtime.tasks.ProcessingTimeCallback;
 import org.apache.flink.streaming.runtime.tasks.ProcessingTimeService;
 import org.apache.flink.util.Preconditions;
@@ -91,8 +92,8 @@ import org.slf4j.LoggerFactory;
  * <p>
  */
 @SuppressWarnings("checkstyle:HiddenField")
-public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
-    implements CheckpointedFunction, CheckpointListener, ProcessingTimeCallback {
+public class IcebergCommitter extends AbstractStreamOperator<DataFile>
+    implements OneInputStreamOperator<DataFile, DataFile>, BoundedOneInput, ProcessingTimeCallback {
   private static final long serialVersionUID = 1L;
   private static final Logger LOG = LoggerFactory.getLogger(IcebergCommitter.class);
 
@@ -121,7 +122,7 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
   private final int tableSnapshotRetainNums;
 
   private transient Table table;
-  private transient List<FlinkDataFile> pendingDataFiles;
+  private transient List<DataFile> pendingDataFiles;
   private transient List<FlinkManifestFile> flinkManifestFiles;
   private transient ListState<ManifestFileState> manifestFileState;
   private transient CommitMetadata metadata;
@@ -209,21 +210,6 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
     LOG.info("Iceberg committer {} loaded table partition spec: {}", identifier, spec);
   }
 
-  @VisibleForTesting
-  List<FlinkDataFile> getPendingDataFiles() {
-    return pendingDataFiles;
-  }
-
-  @VisibleForTesting
-  List<FlinkManifestFile> getFlinkManifestFiles() {
-    return flinkManifestFiles;
-  }
-
-  @VisibleForTesting
-  CommitMetadata getMetadata() {
-    return metadata;
-  }
-
   private String getTempManifestLocation(Configuration config, String baseLocation) {
     String defaultLocation =
         new Path(baseLocation, IcebergConnectorConstant.DEFAULT_TEMP_MANIFEST_FOLDER_NAME).toString();
@@ -231,10 +217,9 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
   }
 
   @Override
-  public void open(Configuration parameters) throws Exception {
-    super.open(parameters);
-    this.isCheckpointEnabled = ((StreamingRuntimeContext) getRuntimeContext()).isCheckpointingEnabled();
-    this.processingTimeService = ((StreamingRuntimeContext) getRuntimeContext()).getProcessingTimeService();
+  public void open() throws Exception {
+    this.isCheckpointEnabled = getRuntimeContext().isCheckpointingEnabled();
+    this.processingTimeService = getRuntimeContext().getProcessingTimeService();
     final long currentTimestamp = processingTimeService.getCurrentProcessingTime();
     // If we don't enable checkpoint, we will use timeservice to do commit,
     if (!isCheckpointEnabled) {
@@ -285,9 +270,9 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
   }
 
   @Override
-  public void initializeState(FunctionInitializationContext context) throws Exception {
+  public void initializeState(StateInitializationContext context) throws Exception {
+    super.initializeState(context);
     init();
-
     Preconditions.checkState(manifestFileState == null,
         "checkpointedFilesState has already been initialized.");
     Preconditions.checkState(commitMetadataState == null,
@@ -393,7 +378,9 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
   }
 
   @Override
-  public void snapshotState(FunctionSnapshotContext context) throws Exception {
+  public void snapshotState(StateSnapshotContext context) throws Exception {
+    super.snapshotState(context);
+
     LOG.info("Iceberg committer {} snapshot state: checkpointId = {}, triggerTime = {}",
         identifier, context.getCheckpointId(), context.getCheckpointTimestamp());
     Preconditions.checkState(manifestFileState != null,
@@ -404,23 +391,34 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
     // set transaction to null to indicate a start of a new checkpoint/commit/transaction
     synchronized (this) {
       snapshot(context, pendingDataFiles);
-      checkpointState(flinkManifestFiles, metadata);
       postSnapshotSuccess();
     }
   }
 
   @VisibleForTesting
-  void snapshot(FunctionSnapshotContext context, List<FlinkDataFile> pendingDataFiles) throws Exception {
+  void snapshot(StateSnapshotContext context, List<DataFile> pendingDataFiles) throws Exception {
     FlinkManifestFile flinkManifestFile = null;
     if (!pendingDataFiles.isEmpty()) {
       flinkManifestFile = createManifestFile(context, pendingDataFiles);
       flinkManifestFiles.add(flinkManifestFile);
     }
     metadata = updateMetadata(metadata, context, flinkManifestFile);
+
+    LOG.info("Iceberg committer {} checkpointing state", identifier);
+    List<ManifestFileState> manifestFileStates = flinkManifestFiles.stream()
+        .map(f -> f.toState())
+        .collect(Collectors.toList());
+    manifestFileState.clear();
+    manifestFileState.addAll(manifestFileStates);
+    commitMetadataState.clear();
+    commitMetadataState.add(metadata);
+    LOG.info("Iceberg committer {} checkpointed state: metadata = {}, flinkManifestFiles({}) = {}",
+        identifier, CommitMetadataUtil.encodeAsJson(metadata),
+        flinkManifestFiles.size(), flinkManifestFiles);
   }
 
   // For non-checkpoint case.
-  private FlinkManifestFile createManifestFile(List<FlinkDataFile> pendingDataFiles)
+  private FlinkManifestFile createManifestFile(List<DataFile> pendingDataFiles)
       throws Exception {
     // Generate a default context in non-checkpoint mode.
     return createManifestFile(new StateSnapshotContextSynchronousImpl(0L,
@@ -432,7 +430,7 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
   *  */
   // For checkpoint case.
   private FlinkManifestFile createManifestFile(
-      FunctionSnapshotContext context, List<FlinkDataFile> pendingDataFiles) throws Exception {
+      FunctionSnapshotContext context, List<DataFile> pendingDataFiles) throws Exception {
     Preconditions.checkArgument(pendingDataFiles != null && !pendingDataFiles.isEmpty(),
         "Need at least 1 pending data file (pendingDataFiles size >= 1) when calling createManifestFile()");
     LOG.info("Iceberg committer {} checkpointing {} pending data files", identifier, pendingDataFiles.size());
@@ -453,18 +451,11 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
       long byteCount = 0;
       long lowWatermark = Long.MAX_VALUE;
       long highWatermark = Long.MIN_VALUE;
-      for (FlinkDataFile flinkDataFile : pendingDataFiles) {
-        DataFile dataFile = flinkDataFile.getIcebergDataFile();
+      for (DataFile dataFile : pendingDataFiles) {
         manifestWriter.add(dataFile);
         // update stats
         recordCount += dataFile.recordCount();
         byteCount += dataFile.fileSizeInBytes();
-        if (flinkDataFile.getLowWatermark() < lowWatermark) {
-          lowWatermark = flinkDataFile.getLowWatermark();
-        }
-        if (flinkDataFile.getHighWatermark() > highWatermark) {
-          highWatermark = flinkDataFile.getHighWatermark();
-        }
         LOG.debug("Data file with size of {} bytes added to manifest", dataFile.fileSizeInBytes());
       }
       manifestWriter.close();
@@ -487,7 +478,7 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
       // split the complete list into smaller chunks with 50 files.
       final AtomicInteger counter = new AtomicInteger(0);
       Collection<List<String>> listOfFileList = pendingDataFiles.stream()
-          .map(flinkDataFile -> flinkDataFile.toCompactDump())
+          .map(Object::toString)
           .collect(Collectors.groupingBy(it -> counter.getAndIncrement() / 50))
           .values();
       for (List<String> fileList : listOfFileList) {
@@ -552,20 +543,6 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
     LOG.info("Iceberg committer {} updated metadata {} with manifest file {}",
         identifier, CommitMetadataUtil.encodeAsJson(newMetadata), flinkManifestFile);
     return newMetadata;
-  }
-
-  private void checkpointState(List<FlinkManifestFile> flinkManifestFiles, CommitMetadata metadata) throws Exception {
-    LOG.info("Iceberg committer {} checkpointing state", identifier);
-    List<ManifestFileState> manifestFileStates = flinkManifestFiles.stream()
-        .map(f -> f.toState())
-        .collect(Collectors.toList());
-    manifestFileState.clear();
-    manifestFileState.addAll(manifestFileStates);
-    commitMetadataState.clear();
-    commitMetadataState.add(metadata);
-    LOG.info("Iceberg committer {} checkpointed state: metadata = {}, flinkManifestFiles({}) = {}",
-        identifier, CommitMetadataUtil.encodeAsJson(metadata),
-        flinkManifestFiles.size(), flinkManifestFiles);
   }
 
   private void postSnapshotSuccess() {
@@ -694,18 +671,6 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
   }
 
   @Override
-  public void invoke(FlinkDataFile value, Context context) throws Exception {
-    pendingDataFiles.add(value);
-    // TODO
-    LOG.debug("Receive file count ?, containing record count {} and file size in byte {}",
-        value.getIcebergDataFile().recordCount(),
-        value.getIcebergDataFile().fileSizeInBytes());
-    LOG.debug("Iceberg committer {} has total pending files {} after receiving new data file: {}",
-        identifier, pendingDataFiles.size(), value.toCompactDump());
-    tpsMeter.markEvent();
-  }
-
-  @Override
   public void onProcessingTime(long timestamp) throws Exception {
     long startProcess = System.currentTimeMillis();
     if (!pendingDataFiles.isEmpty()) {
@@ -716,8 +681,7 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
     try {
       commit();
       final long currentTimestamp = processingTimeService.getCurrentProcessingTime();
-      processingTimeService.registerTimer(currentTimestamp +
-          flushCommitInterval, this);
+      processingTimeService.registerTimer(currentTimestamp + flushCommitInterval, this);
       latencyHisto.update(System.currentTimeMillis() - startProcess);
     } catch (Exception t) {
       LOG.error("Iceberg committer {}.{} failed to do post checkpoint commit. Throwable = ",
@@ -726,4 +690,25 @@ public class IcebergCommitter extends RichSinkFunction<FlinkDataFile>
     }
   }
 
+  @Override
+  public void processElement(StreamRecord<DataFile> element) throws Exception {
+    DataFile value = element.getValue();
+    pendingDataFiles.add(value);
+    // TODO
+    LOG.debug("Receive file count ?, containing record count {} and file size in byte {}",
+        value.recordCount(), value.fileSizeInBytes());
+    LOG.debug("Iceberg committer {} has total pending files {} after receiving new data file: {}",
+        identifier, pendingDataFiles.size(), value);
+    tpsMeter.markEvent();
+  }
+
+  @Override
+  public void endInput() throws Exception {
+    if (!pendingDataFiles.isEmpty()) {
+      FlinkManifestFile flinkManifestFile = createManifestFile(pendingDataFiles);
+      flinkManifestFiles.add(flinkManifestFile);
+      pendingDataFiles.clear();
+    }
+    commit();
+  }
 }
