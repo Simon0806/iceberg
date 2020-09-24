@@ -17,30 +17,26 @@
  * under the License.
  */
 
-package org.apache.iceberg.flink.connector.sink;
+package org.apache.iceberg.flink.connector.model;
 
 import java.io.Serializable;
-import org.apache.iceberg.io.TaskWriter;
+import org.apache.iceberg.CombinedScanTask;
 
-/**
- * Factory to create {@link TaskWriter}
- *
- * @param <T> data type of record.
- */
-public interface TaskWriterFactory<T> extends Serializable {
+public class CombinedScanTaskWrapper implements Serializable {
+  private CombinedScanTask task;
+  // current batch's time.
+  private long currentTaskMillis;
 
-  /**
-   * Initialize the factory with a given taskId and attemptId.
-   *
-   * @param taskId    the identifier of task.
-   * @param attemptId the attempt id of this task.
-   */
-  void initialize(int taskId, int attemptId);
+  public CombinedScanTaskWrapper(CombinedScanTask combinedScanTask, long currentMillis) {
+    this.task = combinedScanTask;
+    this.currentTaskMillis = currentMillis;
+  }
 
-  /**
-   * Initialize a {@link TaskWriter} with given task id and attempt id.
-   *
-   * @return a newly created task writer.
-   */
-  TaskWriter<T> create();
+  public CombinedScanTask getTask() {
+    return task;
+  }
+
+  public long getCurrentTaskMillis() {
+    return currentTaskMillis;
+  }
 }

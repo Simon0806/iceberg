@@ -17,30 +17,18 @@
  * under the License.
  */
 
-package org.apache.iceberg.flink.connector.sink;
+package org.apache.iceberg.flink.connector.sink.merge;
 
-import java.io.Serializable;
-import org.apache.iceberg.io.TaskWriter;
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 
-/**
- * Factory to create {@link TaskWriter}
- *
- * @param <T> data type of record.
- */
-public interface TaskWriterFactory<T> extends Serializable {
+public class RewriteManifestOperator extends AbstractRewriteOperator  {
+  public RewriteManifestOperator(Configuration config) {
+    super(config);
+  }
 
-  /**
-   * Initialize the factory with a given taskId and attemptId.
-   *
-   * @param taskId    the identifier of task.
-   * @param attemptId the attempt id of this task.
-   */
-  void initialize(int taskId, int attemptId);
+  @Override
+  public void processElement(StreamRecord element) throws Exception {
 
-  /**
-   * Initialize a {@link TaskWriter} with given task id and attempt id.
-   *
-   * @return a newly created task writer.
-   */
-  TaskWriter<T> create();
+  }
 }

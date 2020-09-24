@@ -57,6 +57,11 @@ public class IcebergConnectorConstant {
       PARTITION_TRANSFORM_DAY,
       PARTITION_TRANSFORM_HOUR);
 
+  // Window end time align time 2020-01-01 00:00:00. This is use to calculate a
+  // window end time for a timestamp, to avoid different result because of timezone,
+  // we should use a align time.
+  public static final long ALIGN_TIME = 1577808000000L;
+
   // writer parallelism
   // the default value 0 is only a trigger to set the parallelism of writer to the parallelism of the upstream operator
   // to which this sink is chained
@@ -83,11 +88,23 @@ public class IcebergConnectorConstant {
    * will be dropped if its checkpoint timestamp exceeds this retention time (in milli-second).
    */
   public static final String SNAPSHOT_RETENTION_TIME = "snapshot-retention-time";
-  public static final long INFINITE_SNAPSHOT_RETENTION_TIME = -1;  // infinite retention, never drop recovered manifest
+  public static final long INFINITE_SNAPSHOT_RETENTION_TIME = 0;  // infinite retention, never drop recovered manifest
 
   // when checkpoint is not enabled, the interval in which data file flush and Iceberg commit are performed
   public static final String FLUSH_COMMIT_INTERVAL = "flush-commit-interval";
   public static final long DEFAULT_FLUSH_COMMIT_INTERVAL = 60 * 1000L;
+
+  // In streaming job, the commit operation is always continuously, each commit will generate
+  // a new snapshot, when the amount of snapshot reaches to this parameter, then trigger merge operation
+  public static final String NEW_SNAPSHOT_NUMS_TO_MERGE = "new-snapshot-nums-to-merge";
+  public static final int DEFAULT_NEW_SNAPSHOT_NUMS_TO_MERGE = 10;
+
+  public static final String NUMS_OF_DATAFILE_TO_MERGE = "nums-of-datafile-to-merge";
+  public static final int DEFAULT_NUMS_OF_DATAFILE_TO_MERGE = 100;
+
+  // Datafile should auto flush or not, this just use for test.
+  public static final String WRITER_AUTO_ROLLING = "writer-auto-rolling";
+  public static final boolean DEFAULT_WRITER_AUTO_ROLLING = false;
 
   // watermark timestamp function, used for statistics
   // disabled for now

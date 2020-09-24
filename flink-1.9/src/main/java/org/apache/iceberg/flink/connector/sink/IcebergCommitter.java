@@ -193,7 +193,8 @@ public class IcebergCommitter extends AbstractStreamOperator<DataFile>
     io = table.io();
 
     tableSnapshotRetainMills = PropertyUtil.propertyAsInt(table.properties(),
-        TableProperties.SNAPSHOT_RETAIN_LAST_HOURS, TableProperties.SNAPSHOT_RETAIN_LAST_HOURS_DEFAULT) * 3600 * 1000L;
+        TableProperties.SNAPSHOT_RETAIN_LAST_MINUTES,
+        TableProperties.SNAPSHOT_RETAIN_LAST_MINUTES_DEFAULT) * 60 * 1000L;
     tableSnapshotRetainNums = PropertyUtil.propertyAsInt(table.properties(),
         TableProperties.SNAPSHOT_RETAIN_LAST_NUMS, TableProperties.SNAPSHOT_RETAIN_LAST_NUMS_DEFAULT);
 
